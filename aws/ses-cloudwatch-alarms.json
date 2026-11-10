@@ -1,0 +1,28 @@
+{
+  "Alarms": [
+    {
+      "AlarmName": "SES-Bounce-Rate-Exceeded-5-Percent",
+      "AlarmDescription": "Triggers when SES bounce rate exceeds the 5% warning threshold to prevent reputation degradation or account suspension.",
+      "Namespace": "AWS/SES",
+      "MetricName": "Reputation.BounceRate",
+      "Statistic": "Average",
+      "Period": 300,
+      "EvaluationPeriods": 1,
+      "Threshold": 0.05,
+      "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+      "AlarmActions": ["arn:aws:sns:us-east-1:123456789012:bulk-email-alerts"]
+    },
+    {
+      "AlarmName": "SES-Complaint-Rate-Exceeded-0.1-Percent",
+      "AlarmDescription": "Triggers when SES spam complaint rate reaches or exceeds 0.1% (Amazon strict suspension threshold is 0.5%).",
+      "Namespace": "AWS/SES",
+      "MetricName": "Reputation.ComplaintRate",
+      "Statistic": "Average",
+      "Period": 300,
+      "EvaluationPeriods": 1,
+      "Threshold": 0.001,
+      "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+      "AlarmActions": ["arn:aws:sns:us-east-1:123456789012:bulk-email-alerts"]
+    }
+  ]
+}

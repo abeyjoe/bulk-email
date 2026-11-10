@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: bulk_email_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secure_postgres_password_2026
+      POSTGRES_DB: bulk_email
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: ../Dockerfile.backend
+    container_name: bulk_email_api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://postgres:secure_postgres_password_2026@postgres:5432/bulk_email?schema=public
+      JWT_SECRET: super_secure_enterprise_jwt_secret_key_bulk_email_2026
+      FRONTEND_URL: http://localhost:3000
+      QUEUE_DRIVER: database
+      EMAIL_PROVIDER: simulator # change to 'ses' in AWS production
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-mock_key}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-mock_secret}
+      AWS_SES_SOURCE_EMAIL: noreply@bulkemail.cloud
+      AWS_SES_CONFIGURATION_SET: bulk-email-events
+      DEFAULT_MAX_SENDING_RATE: 5.0
+      START_EMBEDDED_WORKER: "false" # Workers run in dedicated container
+    ports:
+      - "4000:4000"
+
+  # Decoupled Background Workers (Scalable to N replicas)
+  worker:
+    build:
+      context: ./backend
+      dockerfile: ../Dockerfile.backend
+    container_name: bulk_email_worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    command: ["node", "dist/worker-runner.js"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:secure_postgres_password_2026@postgres:5432/bulk_email?schema=public
+      QUEUE_DRIVER: database # or 'sqs' in AWS production
+      EMAIL_PROVIDER: simulator # or 'ses' in AWS production
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-mock_key}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-mock_secret}
+      AWS_SES_SOURCE_EMAIL: noreply@bulkemail.cloud
+      DEFAULT_MAX_SENDING_RATE: 5.0
+      DEFAULT_WORKER_CONCURRENCY: 4
+      WORKER_PROCESS_COUNT: 2
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: bulk_email_web
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+
+volumes:
+  pgdata:

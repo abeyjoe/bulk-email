@@ -1,0 +1,345 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  VIEWER
+}
+
+enum RecipientStatus {
+  SUBSCRIBED
+  UNSUBSCRIBED
+  BOUNCED
+  SUPPRESSED
+  PENDING_VERIFICATION
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  QUEUING
+  RUNNING
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+  DEAD_LETTER
+}
+
+enum SuppressionReason {
+  HARD_BOUNCE
+  COMPLAINT
+  UNSUBSCRIBE
+  ADMIN_MANUAL
+}
+
+enum DeliveryEventType {
+  ACCEPTED
+  DELIVERED
+  HARD_BOUNCE
+  SOFT_BOUNCE
+  COMPLAINT
+  REJECTION
+  OPEN
+  CLICK
+  UNSUBSCRIBE
+}
+
+enum CampaignRecipientStatus {
+  PENDING
+  QUEUED
+  ACCEPTED
+  DELIVERED
+  BOUNCED
+  REJECTED
+  SUPPRESSED
+}
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  passwordHash String
+  name         String
+  role         Role       @default(MANAGER)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+model Recipient {
+  id               String                 @id @default(uuid())
+  email            String                 @unique
+  firstName        String?
+  lastName         String?
+  organisation     String?
+  customFields     Json?                  @default("{}")
+  status           RecipientStatus        @default(SUBSCRIBED)
+  consentSource    String?
+  consentTimestamp DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  listMembers      RecipientListMember[]
+  consentRecords   ConsentRecord[]
+  campaignRecips   CampaignRecipient[]
+  emailJobs        EmailJob[]
+  deliveryEvents   EmailDeliveryEvent[]
+
+  @@index([email])
+  @@index([status])
+  @@map("recipients")
+}
+
+model RecipientList {
+  id             String                @id @default(uuid())
+  name           String
+  description    String?
+  recipientCount Int                   @default(0)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  members        RecipientListMember[]
+  campaigns      Campaign[]
+
+  @@map("recipient_lists")
+}
+
+model RecipientListMember {
+  id          String        @id @default(uuid())
+  listId      String
+  recipientId String
+  joinedAt    DateTime      @default(now())
+  list        RecipientList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  recipient   Recipient     @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@unique([listId, recipientId])
+  @@index([listId])
+  @@index([recipientId])
+  @@map("recipient_list_members")
+}
+
+model ConsentRecord {
+  id               String    @id @default(uuid())
+  recipientId      String
+  email            String
+  consentType      String    // e.g. "EXPLICIT_OPT_IN", "PREVIOUS_PURCHASE", "WEB_SIGNUP"
+  ipAddress        String?
+  userAgent        String?
+  consentSource    String
+  consentTimestamp DateTime  @default(now())
+  notes            String?
+  recipient        Recipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([recipientId])
+  @@map("consent_records")
+}
+
+model SuppressionRecord {
+  id        String            @id @default(uuid())
+  email     String            @unique
+  reason    SuppressionReason
+  source    String            // "SES_BOUNCE", "SES_COMPLAINT", "UNSUBSCRIBE_LINK", "ADMIN"
+  metadata  Json?             @default("{}")
+  createdAt DateTime          @default(now())
+
+  @@index([email])
+  @@index([reason])
+  @@map("suppression_records")
+}
+
+model EmailTemplate {
+  id               String     @id @default(uuid())
+  name             String
+  subject          String
+  htmlContent      String
+  plainTextContent String?
+  category         String?    @default("General")
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  campaigns        Campaign[]
+
+  @@map("email_templates")
+}
+
+model Campaign {
+  id                  String               @id @default(uuid())
+  name                String
+  subject             String
+  senderName          String
+  senderEmail         String
+  replyTo             String?
+  templateId          String?
+  htmlContent         String
+  plainTextContent    String?
+  status              CampaignStatus       @default(DRAFT)
+  scheduledAt         DateTime?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  totalRecipients     Int                  @default(0)
+  eligibleRecipients  Int                  @default(0)
+  excludedRecipients  Int                  @default(0)
+  queuedCount         Int                  @default(0)
+  acceptedCount       Int                  @default(0)
+  deliveredCount      Int                  @default(0)
+  bouncedCount        Int                  @default(0)
+  complaintCount      Int                  @default(0)
+  unsubscribedCount   Int                  @default(0)
+  targetListId        String?
+  safetyPausedReason  String?
+  maxSendingRate      Float                @default(14.0) // messages per second allowed
+  bounceThreshold     Float                @default(5.0)  // pause if bounce rate > 5%
+  complaintThreshold  Float                @default(0.1)  // pause if complaint rate > 0.1%
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  template            EmailTemplate?       @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  targetList          RecipientList?       @relation(fields: [targetListId], references: [id], onDelete: SetNull)
+  campaignRecipients  CampaignRecipient[]
+  emailJobs           EmailJob[]
+  deliveryEvents      EmailDeliveryEvent[]
+  unsubscribes        UnsubscribeRecord[]
+
+  @@index([status])
+  @@map("campaigns")
+}
+
+model CampaignRecipient {
+  id                String                  @id @default(uuid())
+  campaignId        String
+  recipientId       String
+  email             String
+  status            CampaignRecipientStatus @default(PENDING)
+  providerMessageId String?
+  error             String?
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  openedAt          DateTime?
+  clickedAt         DateTime?
+  campaign          Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  recipient         Recipient               @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, recipientId])
+  @@index([campaignId])
+  @@index([recipientId])
+  @@index([email])
+  @@index([providerMessageId])
+  @@map("campaign_recipients")
+}
+
+model EmailJob {
+  id             String    @id @default(uuid())
+  campaignId     String
+  recipientId    String
+  email          String
+  payload        Json      // rendered subject, html, text, sender info, tracking ids
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(5)
+  status         JobStatus @default(PENDING)
+  lastError      String?
+  nextRunAt      DateTime  @default(now())
+  lockedAt       DateTime?
+  lockedBy       String?
+  idempotencyKey String    @unique // hash of campaignId + recipientId + retryAttempt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  campaign       Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  recipient      Recipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextRunAt])
+  @@index([campaignId])
+  @@index([lockedBy, lockedAt])
+  @@map("email_jobs")
+}
+
+model EmailDeliveryEvent {
+  id                String            @id @default(uuid())
+  campaignId        String?
+  recipientId       String?
+  email             String
+  eventType         DeliveryEventType
+  providerMessageId String?
+  rawPayload        Json?
+  occurredAt        DateTime          @default(now())
+  createdAt         DateTime          @default(now())
+  campaign          Campaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  recipient         Recipient?        @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+
+  @@index([campaignId])
+  @@index([recipientId])
+  @@index([providerMessageId])
+  @@index([email])
+  @@index([eventType])
+  @@map("email_delivery_events")
+}
+
+model ProviderAccount {
+  id                   String   @id @default(uuid())
+  name                 String
+  providerType         String   @default("SES") // "SES", "BREVO", "SENDGRID", "SIMULATOR"
+  isDefault            Boolean  @default(true)
+  isSandbox            Boolean  @default(false)
+  sendingQuotaDaily    Int      @default(50000)
+  sendingRatePerSecond Float    @default(14.0)
+  region               String   @default("us-east-1")
+  accessKeyMasked      String?
+  status               String   @default("ACTIVE")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@map("provider_accounts")
+}
+
+model UnsubscribeRecord {
+  id             String    @id @default(uuid())
+  email          String
+  campaignId     String?
+  token          String    @unique
+  reason         String?
+  ipAddress      String?
+  userAgent      String?
+  unsubscribedAt DateTime  @default(now())
+  campaign       Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([email])
+  @@index([campaignId])
+  @@map("unsubscribe_records")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  action     String   // e.g. "CAMPAIGN_START", "RECIPIENT_IMPORT", "SAFETY_PAUSE"
+  entityType String   // "CAMPAIGN", "RECIPIENT", "SYSTEM"
+  entityId   String?
+  details    Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([action])
+  @@index([entityType])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model SystemSetting {
+  key         String   @id
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_settings")
+}
