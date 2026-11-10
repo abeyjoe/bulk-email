@@ -20,9 +20,17 @@ export const config = {
   },
 
   email: {
-    provider: (process.env.EMAIL_PROVIDER || 'simulator') as 'ses' | 'simulator',
-    sourceEmail: process.env.AWS_SES_SOURCE_EMAIL || 'noreply@bulkemail.cloud',
+    provider: (process.env.EMAIL_PROVIDER || 'simulator') as 'ses' | 'smtp' | 'simulator',
+    sourceEmail: process.env.AWS_SES_SOURCE_EMAIL || process.env.SMTP_FROM || 'noreply@bulkemail.cloud',
     configurationSet: process.env.AWS_SES_CONFIGURATION_SET || 'bulk-email-events',
+  },
+
+  smtp: {
+    host: process.env.SMTP_HOST || '',
+    port: parseInt(process.env.SMTP_PORT || '587', 10),
+    secure: process.env.SMTP_SECURE === 'true',
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || '',
   },
 
   aws: {
