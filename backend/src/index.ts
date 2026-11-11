@@ -12,6 +12,7 @@ import { complianceRouter } from './compliance/compliance.routes';
 import { webhookRouter } from './webhooks/webhook.routes';
 import { analyticsRouter } from './analytics/analytics.routes';
 import { systemRouter } from './system/system.routes';
+import { providerRouter } from './providers/provider.routes';
 import { EmailWorker } from './worker/email-worker';
 
 export const app = express();
@@ -51,6 +52,8 @@ app.use('/api/v1/compliance', complianceRouter);
 app.use('/api/v1/webhooks', webhookRouter);
 app.use('/api/v1/analytics', analyticsRouter);
 app.use('/api/v1/system', systemRouter);
+app.use('/api/v1/providers', providerRouter);
+app.use('/api/providers', providerRouter);
 
 // Global Error Handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

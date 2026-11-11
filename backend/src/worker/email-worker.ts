@@ -1,11 +1,14 @@
 import { getQueueService } from '../queue';
-import { getEmailProvider } from '../providers';
+import { providerRegistry } from '../providers/provider-registry.service';
+import { providerRouter } from '../routing/provider-router.service';
+import { quotaManager } from '../quota/quota-manager.service';
+import { multiRateLimiter } from '../limiter/multi-rate-limiter.service';
 import { SuppressionService } from '../compliance/suppression.service';
-import { globalRateLimiter } from '../limiter/rate-limiter.service';
 import { prisma } from '../db/prisma';
 import { QueueJob } from '../queue/queue.interface';
 import { CampaignStatus, CampaignRecipientStatus, DeliveryEventType, SuppressionReason } from '@prisma/client';
 import { config } from '../config';
+import { EmailProvider } from '../providers/provider.interface';
 
 export class EmailWorker {
   private workerId: string;
@@ -26,14 +29,14 @@ export class EmailWorker {
       concurrency: this.concurrency,
       activeJobs: this.activeJobsCount,
       totalProcessed: this.processedCount,
-      rateLimitPerSec: globalRateLimiter.getRate(),
+      limiterStats: multiRateLimiter.getStatus(),
     };
   }
 
   public async start(): Promise<void> {
     if (this.isRunning) return;
     this.isRunning = true;
-    console.log(`[Worker ${this.workerId}] Starting with concurrency ${this.concurrency}...`);
+    console.log(`[Worker ${this.workerId}] Starting multi-provider worker with concurrency ${this.concurrency}...`);
 
     this.runLoop().catch((err) => {
       console.error(`[Worker ${this.workerId}] Fatal error in runLoop:`, err);
@@ -50,7 +53,6 @@ export class EmailWorker {
 
     while (this.isRunning) {
       try {
-        // Calculate available capacity based on concurrency limit
         const availableSlots = this.concurrency - this.activeJobsCount;
         if (availableSlots <= 0) {
           await new Promise((resolve) => setTimeout(resolve, 50));
@@ -61,12 +63,10 @@ export class EmailWorker {
         const jobs = await queue.dequeue(batchSize, this.workerId);
 
         if (jobs.length === 0) {
-          // No jobs currently available, wait before polling again
           await new Promise((resolve) => setTimeout(resolve, config.worker.pollIntervalMs));
           continue;
         }
 
-        // Process jobs concurrently up to concurrency limit
         for (const job of jobs) {
           this.activeJobsCount++;
           this.processJob(job)
@@ -89,10 +89,9 @@ export class EmailWorker {
 
   private async processJob(job: QueueJob): Promise<void> {
     const queue = getQueueService();
-    const provider = getEmailProvider();
 
     try {
-      // 1. Fetch current campaign status & safety threshold check
+      // 1. Fetch current campaign status & safety circuit breaker check
       const campaign = await prisma.campaign.findUnique({
         where: { id: job.campaignId },
         select: {
@@ -109,35 +108,34 @@ export class EmailWorker {
       });
 
       if (!campaign) {
-        // Campaign was deleted, acknowledge job and discard
         await queue.ack(job);
         return;
       }
 
-      // Check if campaign is paused or cancelled
       if (campaign.status === CampaignStatus.PAUSED || campaign.status === CampaignStatus.CANCELLED) {
-        // Put job back into queue for later or discard if cancelled
         if (campaign.status === CampaignStatus.CANCELLED) {
           await queue.ack(job);
           await prisma.campaignRecipient.updateMany({
             where: { campaignId: job.campaignId, recipientId: job.recipientId },
             data: { status: CampaignRecipientStatus.REJECTED, error: 'Campaign was cancelled' },
           });
+          if (job.payload.reservationId) {
+            await quotaManager.releaseQuota(job.payload.reservationId, 1);
+          }
         } else {
           await queue.nack(job, 'Campaign currently paused', 60);
         }
         return;
       }
 
-      // 2. Automated Circuit Breaker / Safety Check
-      // If bounce rate > threshold or complaints > threshold, auto-pause campaign!
+      // 2. Automated Reputation Circuit Breaker
       if (campaign.acceptedCount >= 20) {
         const bounceRate = (campaign.bouncedCount / campaign.acceptedCount) * 100;
         const complaintRate = (campaign.complaintCount / campaign.acceptedCount) * 100;
 
         if (bounceRate >= campaign.bounceThreshold || complaintRate >= campaign.complaintThreshold) {
           const pauseReason = `Safety Threshold Breached: Bounce Rate ${bounceRate.toFixed(2)}% (limit ${campaign.bounceThreshold}%) or Complaint Rate ${complaintRate.toFixed(2)}% (limit ${campaign.complaintThreshold}%). Campaign automatically halted to protect domain reputation.`;
-          
+
           console.warn(`[Worker Safety Circuit Breaker] Pausing campaign ${campaign.name}: ${pauseReason}`);
 
           await prisma.campaign.update({
@@ -153,29 +151,39 @@ export class EmailWorker {
         }
       }
 
-      // 3. Check Real-Time Suppression Status
+      // 3. Real-Time Permanent Suppression Check
       const isSuppressed = await SuppressionService.isSuppressed(job.email);
       if (isSuppressed) {
         console.log(`[Worker ${this.workerId}] Skipping suppressed recipient ${job.email}`);
         await queue.ack(job);
-        await prisma.campaignRecipient.updateMany({
-          where: { campaignId: job.campaignId, recipientId: job.recipientId },
-          data: {
-            status: CampaignRecipientStatus.SUPPRESSED,
-            error: 'Recipient is on permanent suppression list',
-          },
-        });
-        await prisma.campaign.update({
-          where: { id: job.campaignId },
-          data: { excludedRecipients: { increment: 1 } },
-        });
+
+        await Promise.all([
+          prisma.campaignRecipient.updateMany({
+            where: { campaignId: job.campaignId, recipientId: job.recipientId },
+            data: {
+              status: CampaignRecipientStatus.SUPPRESSED,
+              error: 'Recipient is on permanent suppression list',
+            },
+          }),
+          prisma.campaign.update({
+            where: { id: job.campaignId },
+            data: { excludedRecipients: { increment: 1 } },
+          }),
+        ]);
+
+        if (job.payload.reservationId) {
+          await quotaManager.releaseQuota(job.payload.reservationId, 1);
+        }
         return;
       }
 
-      // 4. Shared Rate Limiter Permit Acquisition
-      await globalRateLimiter.acquire(1);
+      // 4. Resolve Provider Adapter
+      const provider = await this.resolveProvider(job);
 
-      // 5. Send via Provider API
+      // 5. Rate Limiter Permit Acquisition (Per-provider token bucket)
+      await multiRateLimiter.acquire(provider.id, 1);
+
+      // 6. Send via Provider API
       const result = await provider.send({
         to: job.payload.to,
         from: job.payload.from,
@@ -186,11 +194,18 @@ export class EmailWorker {
         headers: job.payload.headers,
         campaignId: job.campaignId,
         recipientId: job.recipientId,
+        jobId: job.id,
       });
 
       if (result.success) {
-        // Success: record acceptance by provider
+        // Success: Acknowledge job and commit quota
         await queue.ack(job);
+
+        if (job.payload.reservationId) {
+          await quotaManager.commitQuota(job.payload.reservationId, 1);
+        }
+
+        const costUsd = result.costEstimateUsd || 0.0;
 
         await Promise.all([
           prisma.campaignRecipient.updateMany({
@@ -213,23 +228,73 @@ export class EmailWorker {
               email: job.email,
               eventType: DeliveryEventType.ACCEPTED,
               providerMessageId: result.messageId,
+              providerAccountId: provider.id,
+              costUsd,
               occurredAt: result.timestamp,
             },
           }),
         ]);
 
-        // Check if all queued jobs for campaign have finished
         this.checkCampaignCompletion(job.campaignId).catch(() => {});
       } else {
-        // Delivery failed
-        if (result.isTransient) {
-          // Temporary error, retry with exponential backoff
+        // Delivery Failed
+        if (result.isTransient || result.rateLimited) {
+          // 7. Failover Circuit: Handle 429 rate limit or transient provider outage
+          if (result.rateLimited) {
+            const cooldownSec = result.retryAfterMs ? result.retryAfterMs / 1000 : 30;
+            multiRateLimiter.reportRateLimitHit(provider.id, cooldownSec);
+          }
+
+          // Record provider failure
+          await prisma.providerAccount.update({
+            where: { id: provider.id },
+            data: {
+              consecutiveFailures: { increment: 1 },
+            },
+          }).catch(() => {});
+
+          // Check if retry budget allows failover
+          if (job.attempts < job.maxAttempts) {
+            const failover = await providerRouter.selectFailoverProvider(provider.id, job.campaignId);
+
+            if (failover) {
+              console.warn(
+                `[Worker Failover] Re-routing job ${job.id} for ${job.email} from ${provider.id} -> ${failover.providerId} (${result.error})`
+              );
+
+              // Release old reservation
+              if (job.payload.reservationId) {
+                await quotaManager.releaseQuota(job.payload.reservationId, 1);
+              }
+
+              // Update job payload with new provider and lease
+              job.payload.assignedProviderId = failover.providerId;
+              job.payload.reservationId = failover.reservationId;
+
+              await prisma.emailJob.update({
+                where: { id: job.id },
+                data: {
+                  assignedProviderId: failover.providerId,
+                  payload: job.payload,
+                },
+              }).catch(() => {});
+
+              await queue.nack(job, `Failover to ${failover.providerId}: ${result.error}`, 2);
+              return;
+            }
+          }
+
+          // Fallback standard nack retry if no alternative provider
           console.warn(`[Worker ${this.workerId}] Transient error sending to ${job.email}: ${result.error}`);
-          await queue.nack(job, result.error || 'Transient provider error');
+          await queue.nack(job, result.error || 'Transient provider error', 30);
         } else {
-          // Permanent failure or hard bounce from provider
+          // 8. Permanent Failure: Hard bounce or explicit provider rejection
           console.error(`[Worker ${this.workerId}] Hard failure sending to ${job.email}: ${result.error}`);
-          await queue.ack(job); // Do not retry permanent failure
+          await queue.ack(job);
+
+          if (job.payload.reservationId) {
+            await quotaManager.releaseQuota(job.payload.reservationId, 1);
+          }
 
           await Promise.all([
             prisma.campaignRecipient.updateMany({
@@ -249,19 +314,20 @@ export class EmailWorker {
                 recipientId: job.recipientId,
                 email: job.email,
                 eventType: DeliveryEventType.REJECTION,
-                rawPayload: { error: result.error },
+                providerAccountId: provider.id,
+                rawPayload: { error: result.error, errorCode: result.errorCode },
                 occurredAt: new Date(),
               },
             }),
           ]);
 
-          // If provider error is a suppression or hard bounce, auto-suppress
-          if (result.error && (result.error.includes('550') || result.error.includes('suppress'))) {
+          // Auto-suppress permanent bounce
+          if (result.error && (result.error.includes('550') || result.error.includes('suppress') || result.errorCode === 'HARD_BOUNCE')) {
             await SuppressionService.suppress(
               job.email,
               SuppressionReason.HARD_BOUNCE,
               'PROVIDER_REJECTION',
-              { error: result.error }
+              { error: result.error, provider: provider.name }
             );
           }
         }
@@ -270,6 +336,19 @@ export class EmailWorker {
       console.error(`[Worker ${this.workerId}] Unexpected error processing job ${job.id}:`, err);
       await queue.nack(job, err.message || 'Worker processing exception');
     }
+  }
+
+  private async resolveProvider(job: QueueJob): Promise<EmailProvider> {
+    const assignedId = job.payload.assignedProviderId;
+    if (assignedId) {
+      try {
+        return await providerRegistry.getProvider(assignedId);
+      } catch (err) {
+        console.warn(`[Worker] Assigned provider ${assignedId} unavailable, falling back to default`);
+      }
+    }
+
+    return await providerRegistry.getDefaultProvider();
   }
 
   private async checkCampaignCompletion(campaignId: string): Promise<void> {

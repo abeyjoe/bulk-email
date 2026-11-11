@@ -5,6 +5,9 @@ import { SuppressionService } from '../compliance/suppression.service';
 import { UnsubscribeService } from '../compliance/unsubscribe.service';
 import { TemplateEngine } from '../templates/template-engine';
 import { globalRateLimiter } from '../limiter/rate-limiter.service';
+import { multiRateLimiter } from '../limiter/multi-rate-limiter.service';
+import { providerRouter, RoutingStrategy } from '../routing/provider-router.service';
+import { quotaManager } from '../quota/quota-manager.service';
 import { CampaignStatus, CampaignRecipientStatus, RecipientStatus } from '@prisma/client';
 import { config } from '../config';
 import crypto from 'crypto';
@@ -23,6 +26,8 @@ export interface CreateCampaignInput {
   maxSendingRate?: number;
   bounceThreshold?: number;
   complaintThreshold?: number;
+  routingMode?: RoutingStrategy;
+  providerAllocations?: Record<string, any>;
 }
 
 export class CampaignService {
@@ -50,6 +55,8 @@ export class CampaignService {
         maxSendingRate: data.maxSendingRate || 5.0,
         bounceThreshold: data.bounceThreshold || 5.0,
         complaintThreshold: data.complaintThreshold || 0.1,
+        routingMode: data.routingMode || 'PRIORITY',
+        providerAllocations: data.providerAllocations || {},
         status: data.scheduledAt ? CampaignStatus.SCHEDULED : CampaignStatus.DRAFT,
       },
     });
@@ -82,6 +89,28 @@ export class CampaignService {
     const excludedCount = suppressedCount + unsubscribedCount + bouncedCount;
     const eligibleCount = Math.max(0, totalInTarget - excludedCount);
 
+    const providers = await prisma.providerAccount.findMany({
+      where: { isEnabled: true, status: 'ACTIVE' },
+      select: {
+        id: true,
+        name: true,
+        providerType: true,
+        dailyQuota: true,
+        dailyUsed: true,
+        costPerThousand: true,
+        perSecondRateLimit: true,
+        healthStatus: true,
+      },
+    });
+
+    const totalAvailableDailyCapacity = providers.reduce(
+      (acc, p) => acc + Math.max(0, p.dailyQuota - p.dailyUsed),
+      0
+    );
+
+    const estCost = providers[0]?.costPerThousand || 0.10;
+    const estimatedCostUsd = Math.round(((eligibleCount / 1000) * estCost) * 100) / 100;
+
     return {
       campaignId: campaign.id,
       campaignName: campaign.name,
@@ -96,6 +125,18 @@ export class CampaignService {
         unsubscribed: unsubscribedCount,
         bounced: bouncedCount,
       },
+      routingMode: campaign.routingMode,
+      providers: providers.map((p) => ({
+        id: p.id,
+        name: p.name,
+        type: p.providerType,
+        dailyRemaining: Math.max(0, p.dailyQuota - p.dailyUsed),
+        healthStatus: p.healthStatus,
+        costPerThousand: p.costPerThousand,
+      })),
+      totalAvailableDailyCapacity,
+      capacitySufficient: totalAvailableDailyCapacity >= eligibleCount,
+      estimatedCostUsd,
       maxSendingRate: campaign.maxSendingRate,
       bounceThreshold: campaign.bounceThreshold,
       complaintThreshold: campaign.complaintThreshold,
@@ -168,6 +209,23 @@ export class CampaignService {
 
     const totalInList = await prisma.recipient.count({ where: recipientFilter });
 
+    // Plan multi-provider quota leases and distribution before queueing
+    const distributionPlan = await providerRouter.planDistribution(
+      campaignId,
+      totalInList,
+      (campaign.routingMode as RoutingStrategy) || 'PRIORITY',
+      {
+        manual: (campaign.providerAllocations as any)?.manual,
+        hybrid: (campaign.providerAllocations as any)?.hybrid,
+      }
+    );
+
+    const allocationBuckets = distributionPlan.allocations.map((a) => ({
+      providerId: a.providerId,
+      reservationId: a.reservationId,
+      remaining: a.allocatedCount,
+    }));
+
     let eligibleCount = 0;
     let excludedCount = 0;
     let queuedCount = 0;
@@ -217,6 +275,17 @@ export class CampaignService {
 
         eligibleCount++;
 
+        // Select assigned provider lease from allocated buckets
+        let assignedProviderId: string | undefined;
+        let reservationId: string | undefined;
+
+        const availableBucket = allocationBuckets.find((b) => b.remaining > 0);
+        if (availableBucket) {
+          assignedProviderId = availableBucket.providerId;
+          reservationId = availableBucket.reservationId;
+          availableBucket.remaining--;
+        }
+
         // Personalization
         const unsubscribeUrl = UnsubscribeService.generateUnsubscribeUrl(email, recipient.id, campaignId);
         const unsubscribeHeaders = UnsubscribeService.generateHeaders(email, recipient.id, campaignId);
@@ -256,6 +325,8 @@ export class CampaignService {
             html: personalizedHtml,
             text: personalizedText,
             headers: unsubscribeHeaders,
+            assignedProviderId,
+            reservationId,
           },
           idempotencyKey,
         });

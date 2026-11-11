@@ -10,6 +10,9 @@ export interface EnqueueJobInput {
     html: string;
     text?: string;
     headers?: Record<string, string>;
+    assignedProviderId?: string;
+    reservationId?: string;
+    metadata?: Record<string, any>;
   };
   idempotencyKey: string;
 }
@@ -27,6 +30,9 @@ export interface QueueJob {
     html: string;
     text?: string;
     headers?: Record<string, string>;
+    assignedProviderId?: string;
+    reservationId?: string;
+    metadata?: Record<string, any>;
   };
   attempts: number;
   maxAttempts: number;
