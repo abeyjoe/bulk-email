@@ -328,10 +328,23 @@ export const Campaigns: React.FC = () => {
                 </div>
               </div>
 
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 leading-relaxed">
-                <strong>Delivery Engine Configuration:</strong>
-                <p className="mt-0.5">
-                  Controlled dispatch at <strong>{preflightData.maxSendingRate} msgs/sec</strong>. Circuit breaker will automatically halt campaign if bounce rate reaches <strong>{preflightData.bounceThreshold}%</strong> or complaints reach <strong>{preflightData.complaintThreshold}%</strong>.
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 leading-relaxed space-y-1">
+                <div className="flex justify-between items-center">
+                  <span className="font-bold">Multi-Provider Routing Mode:</span>
+                  <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded font-semibold text-[11px]">
+                    {preflightData.routingMode || 'PRIORITY'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-slate-700">
+                  <span>Combined Available Daily Quota:</span>
+                  <span className="font-semibold">{preflightData.totalAvailableDailyCapacity?.toLocaleString() || 0}</span>
+                </div>
+                <div className="flex justify-between items-center text-slate-700">
+                  <span>Estimated Delivery Spend:</span>
+                  <span className="font-bold text-emerald-700">${preflightData.estimatedCostUsd || '0.00'} USD</span>
+                </div>
+                <p className="mt-1 text-[11px] text-blue-800 border-t border-blue-100 pt-1">
+                  Controlled dispatch at <strong>{preflightData.maxSendingRate} msgs/sec</strong>. Circuit breaker will halt if bounce reaches <strong>{preflightData.bounceThreshold}%</strong> or complaints reach <strong>{preflightData.complaintThreshold}%</strong>.
                 </p>
               </div>
             </div>

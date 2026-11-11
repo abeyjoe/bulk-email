@@ -9,6 +9,7 @@ import {
   Settings,
   Sliders,
   Send,
+  Server,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -20,6 +21,7 @@ export const Sidebar: React.FC = () => {
     { to: '/campaigns', label: 'Campaigns', icon: Mail },
     { to: '/campaigns/new', label: 'Create Campaign', icon: Send },
     { to: '/recipients', label: 'Recipients & Lists', icon: Users },
+    { to: '/providers', label: 'Email Providers', icon: Server },
     { to: '/templates', label: 'Templates', icon: FileCode },
     { to: '/suppression', label: 'Suppression & Compliance', icon: ShieldAlert },
     { to: '/settings', label: 'Engine & SES Settings', icon: Sliders },

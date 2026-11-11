@@ -58,6 +58,7 @@ export const CreateCampaign: React.FC = () => {
     maxSendingRate: 5.0,
     bounceThreshold: 5.0,
     complaintThreshold: 0.1,
+    routingMode: 'PRIORITY',
   });
 
   const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile'>('desktop');
@@ -277,6 +278,80 @@ export const CreateCampaign: React.FC = () => {
               />
               <p className="text-[11px] text-slate-400 mt-1">Stops campaign immediately if spam complaints spike.</p>
             </div>
+          </div>
+        </div>
+
+        {/* Multi-Provider Intelligent Routing Mode Selector */}
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-semibold text-slate-900 text-sm">Multi-Provider Routing Strategy</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Select how jobs are distributed across connected providers (Amazon SES, Brevo, Mailchimp, Mock).
+              </p>
+            </div>
+            <span className="px-2.5 py-1 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-md border border-indigo-200">
+              Active Strategy: {campaign.routingMode}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            {[
+              {
+                id: 'PRIORITY',
+                title: 'Priority-Based',
+                desc: 'Fill primary provider (SES) first, cascade to Brevo/secondary on limit.',
+              },
+              {
+                id: 'CAPACITY',
+                title: 'Capacity-Based',
+                desc: 'Distribute proportionally based on live remaining daily quotas.',
+              },
+              {
+                id: 'COST',
+                title: 'Cost-Optimized',
+                desc: 'Route to lowest cost-per-thousand healthy provider first.',
+              },
+              {
+                id: 'MANUAL',
+                title: 'Manual Split',
+                desc: 'Fixed percentages configured across designated providers.',
+              },
+              {
+                id: 'HYBRID',
+                title: 'Hybrid Tiered',
+                desc: 'SES until 80% quota threshold, then balance with secondaries.',
+              },
+            ].map((strategy) => (
+              <button
+                key={strategy.id}
+                type="button"
+                onClick={() => setCampaign({ ...campaign, routingMode: strategy.id as any })}
+                className={`p-3.5 rounded-lg border text-left transition-all ${
+                  campaign.routingMode === strategy.id
+                    ? 'border-indigo-600 bg-indigo-50/50 shadow-sm ring-1 ring-indigo-600'
+                    : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className={`text-xs font-bold ${
+                    campaign.routingMode === strategy.id ? 'text-indigo-900' : 'text-slate-800'
+                  }`}>
+                    {strategy.title}
+                  </span>
+                  <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${
+                    campaign.routingMode === strategy.id
+                      ? 'border-indigo-600 bg-indigo-600'
+                      : 'border-slate-300'
+                  }`}>
+                    {campaign.routingMode === strategy.id && (
+                      <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                    )}
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1 leading-normal">{strategy.desc}</p>
+              </button>
+            ))}
           </div>
         </div>
 

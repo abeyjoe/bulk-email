@@ -11,6 +11,7 @@ import { Recipients } from './pages/Recipients';
 import { Templates } from './pages/Templates';
 import { Suppression } from './pages/Suppression';
 import { Settings } from './pages/Settings';
+import { Providers } from './pages/Providers';
 import { Unsubscribe } from './pages/Unsubscribe';
 import { Login } from './pages/Login';
 
@@ -41,6 +42,7 @@ const ProtectedLayout: React.FC = () => {
             <Route path="/campaigns/new" element={<CreateCampaign />} />
             <Route path="/campaigns/:id" element={<CampaignDetail />} />
             <Route path="/recipients" element={<Recipients />} />
+            <Route path="/providers" element={<Providers />} />
             <Route path="/templates" element={<Templates />} />
             <Route path="/suppression" element={<Suppression />} />
             <Route path="/settings" element={<Settings />} />
