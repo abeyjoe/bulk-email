@@ -176,7 +176,7 @@ model EmailTemplate {
 }
 
 model Campaign {
-  id                  String               @id @default(uuid())
+  id                  String                     @id @default(uuid())
   name                String
   subject             String
   senderName          String
@@ -185,32 +185,41 @@ model Campaign {
   templateId          String?
   htmlContent         String
   plainTextContent    String?
-  status              CampaignStatus       @default(DRAFT)
+  status              CampaignStatus             @default(DRAFT)
   scheduledAt         DateTime?
   startedAt           DateTime?
   completedAt         DateTime?
-  totalRecipients     Int                  @default(0)
-  eligibleRecipients  Int                  @default(0)
-  excludedRecipients  Int                  @default(0)
-  queuedCount         Int                  @default(0)
-  acceptedCount       Int                  @default(0)
-  deliveredCount      Int                  @default(0)
-  bouncedCount        Int                  @default(0)
-  complaintCount      Int                  @default(0)
-  unsubscribedCount   Int                  @default(0)
+  totalRecipients     Int                        @default(0)
+  eligibleRecipients  Int                        @default(0)
+  excludedRecipients  Int                        @default(0)
+  queuedCount         Int                        @default(0)
+  acceptedCount       Int                        @default(0)
+  deliveredCount      Int                        @default(0)
+  bouncedCount        Int                        @default(0)
+  complaintCount      Int                        @default(0)
+  unsubscribedCount   Int                        @default(0)
   targetListId        String?
   safetyPausedReason  String?
-  maxSendingRate      Float                @default(14.0) // messages per second allowed
-  bounceThreshold     Float                @default(5.0)  // pause if bounce rate > 5%
-  complaintThreshold  Float                @default(0.1)  // pause if complaint rate > 0.1%
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  template            EmailTemplate?       @relation(fields: [templateId], references: [id], onDelete: SetNull)
-  targetList          RecipientList?       @relation(fields: [targetListId], references: [id], onDelete: SetNull)
+  maxSendingRate      Float                      @default(14.0) // messages per second allowed
+  bounceThreshold     Float                      @default(5.0)  // pause if bounce rate > 5%
+  complaintThreshold  Float                      @default(0.1)  // pause if complaint rate > 0.1%
+
+  // Multi-Provider Routing Fields
+  routingMode         String                     @default("PRIORITY") // "PRIORITY", "CAPACITY", "COST", "MANUAL", "HYBRID"
+  assignedProviderId  String?
+  providerAllocations Json?                      @default("{}")
+  estimatedCostUsd    Float                      @default(0.0)
+
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  template            EmailTemplate?             @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  targetList          RecipientList?             @relation(fields: [targetListId], references: [id], onDelete: SetNull)
+  assignedProvider    ProviderAccount?           @relation(fields: [assignedProviderId], references: [id], onDelete: SetNull)
   campaignRecipients  CampaignRecipient[]
   emailJobs           EmailJob[]
   deliveryEvents      EmailDeliveryEvent[]
   unsubscribes        UnsubscribeRecord[]
+  reservations        ProviderQuotaReservation[]
 
   @@index([status])
   @@map("campaigns")
@@ -240,26 +249,33 @@ model CampaignRecipient {
 }
 
 model EmailJob {
-  id             String    @id @default(uuid())
-  campaignId     String
-  recipientId    String
-  email          String
-  payload        Json      // rendered subject, html, text, sender info, tracking ids
-  attempts       Int       @default(0)
-  maxAttempts    Int       @default(5)
-  status         JobStatus @default(PENDING)
-  lastError      String?
-  nextRunAt      DateTime  @default(now())
-  lockedAt       DateTime?
-  lockedBy       String?
-  idempotencyKey String    @unique // hash of campaignId + recipientId + retryAttempt
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  campaign       Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  recipient      Recipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  id                 String           @id @default(uuid())
+  campaignId         String
+  recipientId        String
+  email              String
+  payload            Json             // rendered subject, html, text, sender info, tracking ids
+  attempts           Int              @default(0)
+  maxAttempts        Int              @default(5)
+  status             JobStatus        @default(PENDING)
+  lastError          String?
+  nextRunAt          DateTime         @default(now())
+  lockedAt           DateTime?
+  lockedBy           String?
+  idempotencyKey     String           @unique // hash of campaignId + recipientId + retryAttempt
+
+  // Multi-Provider Assignment
+  assignedProviderId String?
+  quotaReserved      Boolean          @default(false)
+
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  campaign           Campaign         @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  recipient          Recipient        @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  assignedProvider   ProviderAccount? @relation(fields: [assignedProviderId], references: [id], onDelete: SetNull)
 
   @@index([status, nextRunAt])
   @@index([campaignId])
+  @@index([assignedProviderId])
   @@index([lockedBy, lockedAt])
   @@map("email_jobs")
 }
@@ -274,11 +290,18 @@ model EmailDeliveryEvent {
   rawPayload        Json?
   occurredAt        DateTime          @default(now())
   createdAt         DateTime          @default(now())
+
+  // Multi-Provider Tracking
+  providerAccountId String?
+  costUsd           Float?            @default(0.0)
+
   campaign          Campaign?         @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   recipient         Recipient?        @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+  providerAccount   ProviderAccount?  @relation(fields: [providerAccountId], references: [id], onDelete: SetNull)
 
   @@index([campaignId])
   @@index([recipientId])
+  @@index([providerAccountId])
   @@index([providerMessageId])
   @@index([email])
   @@index([eventType])
@@ -286,20 +309,69 @@ model EmailDeliveryEvent {
 }
 
 model ProviderAccount {
-  id                   String   @id @default(uuid())
+  id                   String                     @id @default(uuid())
   name                 String
-  providerType         String   @default("SES") // "SES", "BREVO", "SENDGRID", "SIMULATOR"
-  isDefault            Boolean  @default(true)
-  isSandbox            Boolean  @default(false)
-  sendingQuotaDaily    Int      @default(50000)
-  sendingRatePerSecond Float    @default(14.0)
-  region               String   @default("us-east-1")
+  providerType         String                     @default("SES") // "SES", "BREVO", "MAILCHIMP", "MOCK", "SMTP"
+  isDefault            Boolean                    @default(false)
+  isSandbox            Boolean                    @default(false)
+  isEnabled            Boolean                    @default(true)
+  priority             Int                        @default(1)
+  routingWeight        Float                      @default(1.0)
+
+  // Credentials
+  credentialsEncrypted Json?                      @default("{}")
+  region               String?                    @default("us-east-1")
   accessKeyMasked      String?
-  status               String   @default("ACTIVE")
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+
+  // Quotas & Capacity Limits
+  dailyQuota           Int                        @default(50000)
+  dailyUsed            Int                        @default(0)
+  monthlyQuota         Int                        @default(1500000)
+  monthlyUsed          Int                        @default(0)
+  perSecondRateLimit   Float                      @default(14.0)
+
+  // Preserved legacy column aliases for zero data loss
+  sendingQuotaDaily    Int                        @default(50000)
+  sendingRatePerSecond Float                      @default(14.0)
+
+  // Pricing Model
+  costPerThousand      Float                      @default(0.10)
+  monthlySubscriptionFee Float                    @default(0.0)
+
+  // Health Status
+  status               String                     @default("ACTIVE")
+  healthStatus         String                     @default("HEALTHY") // "HEALTHY", "DEGRADED", "SUSPENDED"
+  consecutiveFailures  Int                        @default(0)
+  lastHealthCheckAt    DateTime                   @default(now())
+  lastQuotaSyncAt      DateTime                   @default(now())
+
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+
+  campaigns            Campaign[]
+  emailJobs            EmailJob[]
+  deliveryEvents       EmailDeliveryEvent[]
+  reservations         ProviderQuotaReservation[]
 
   @@map("provider_accounts")
+}
+
+model ProviderQuotaReservation {
+  id             String          @id @default(uuid())
+  providerId     String
+  campaignId     String
+  reservedCount  Int
+  committedCount Int             @default(0)
+  expiresAt      DateTime
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  provider       ProviderAccount @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  campaign       Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([providerId, expiresAt])
+  @@index([campaignId])
+  @@map("provider_quota_reservations")
 }
 
 model UnsubscribeRecord {
@@ -321,8 +393,8 @@ model UnsubscribeRecord {
 model AuditLog {
   id         String   @id @default(uuid())
   userId     String?
-  action     String   // e.g. "CAMPAIGN_START", "RECIPIENT_IMPORT", "SAFETY_PAUSE"
-  entityType String   // "CAMPAIGN", "RECIPIENT", "SYSTEM"
+  action     String   // e.g. "CAMPAIGN_START", "RECIPIENT_IMPORT", "SAFETY_PAUSE", "PROVIDER_FAILOVER"
+  entityType String   // "CAMPAIGN", "RECIPIENT", "PROVIDER", "SYSTEM"
   entityId   String?
   details    Json?
   ipAddress  String?

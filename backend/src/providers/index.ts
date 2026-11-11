@@ -1,17 +1,25 @@
-import { EmailProvider } from './email-provider.interface';
+export * from './provider.interface';
+export * from './provider-registry.service';
+export * from './adapters/ses.adapter';
+export * from './adapters/brevo.adapter';
+export * from './adapters/mailchimp.adapter';
+export * from './adapters/mock.adapter';
+
+// Legacy compatibility exports
+import { EmailProvider as LegacyEmailProvider } from './email-provider.interface';
 import { SesProviderService } from './ses-provider.service';
 import { SimulatorProviderService } from './simulator-provider.service';
 import { SmtpProviderService } from './smtp-provider.service';
 import { config } from '../config';
 
-let activeProvider: EmailProvider | null = null;
+let legacyActiveProvider: LegacyEmailProvider | null = null;
 
-export function getEmailProvider(): EmailProvider {
-  if (!activeProvider) {
+export function getEmailProvider(): LegacyEmailProvider {
+  if (!legacyActiveProvider) {
     if (config.email.provider === 'ses' && config.aws.accessKeyId) {
-      activeProvider = new SesProviderService();
+      legacyActiveProvider = new SesProviderService();
     } else if (config.email.provider === 'smtp' && config.smtp.host) {
-      activeProvider = new SmtpProviderService({
+      legacyActiveProvider = new SmtpProviderService({
         host: config.smtp.host,
         port: config.smtp.port,
         secure: config.smtp.secure,
@@ -21,12 +29,12 @@ export function getEmailProvider(): EmailProvider {
         } : undefined,
       });
     } else {
-      activeProvider = new SimulatorProviderService();
+      legacyActiveProvider = new SimulatorProviderService();
     }
   }
-  return activeProvider;
+  return legacyActiveProvider;
 }
 
-export function setCustomProvider(provider: EmailProvider): void {
-  activeProvider = provider;
+export function setCustomProvider(provider: LegacyEmailProvider): void {
+  legacyActiveProvider = provider;
 }
