@@ -61,12 +61,26 @@ export const CreateCampaign: React.FC = () => {
     routingMode: 'PRIORITY',
   });
 
+  const [availableProviders, setAvailableProviders] = useState<any[]>([]);
+  const [manualAllocations, setManualAllocations] = useState<Record<string, number>>({});
+  const [hybridThreshold, setHybridThreshold] = useState<number>(80);
+
   const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile'>('desktop');
   const [activeTab, setActiveTab] = useState<'editor' | 'preview'>('editor');
 
   useEffect(() => {
     apiRequest('/recipients/lists').then((r) => setLists(r.lists || []));
     apiRequest('/templates').then((r) => setTemplates(r.templates || []));
+    apiRequest('/providers').then((r) => {
+      const provs = (r.providers || []).filter((p: any) => p.isEnabled);
+      setAvailableProviders(provs);
+      if (provs.length > 0) {
+        const initialManual: Record<string, number> = {};
+        const share = Math.round((1.0 / provs.length) * 100) / 100;
+        provs.forEach((p: any) => { initialManual[p.id] = share; });
+        setManualAllocations(initialManual);
+      }
+    });
   }, []);
 
   const handleTemplateSelect = (templateId: string) => {
@@ -93,9 +107,16 @@ export const CreateCampaign: React.FC = () => {
     e.preventDefault();
     try {
       setLoading(true);
+      const payload = {
+        ...campaign,
+        providerAllocations: {
+          manual: campaign.routingMode === 'MANUAL' ? manualAllocations : undefined,
+          hybrid: campaign.routingMode === 'HYBRID' ? { primaryThresholdPercent: hybridThreshold } : undefined,
+        },
+      };
       const res = await apiRequest('/campaigns', {
         method: 'POST',
-        body: JSON.stringify(campaign),
+        body: JSON.stringify(payload),
       });
       navigate(`/campaigns`);
     } catch (err: any) {
@@ -353,6 +374,68 @@ export const CreateCampaign: React.FC = () => {
               </button>
             ))}
           </div>
+
+          {/* Conditional Sub-controls for Manual Split */}
+          {campaign.routingMode === 'MANUAL' && (
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
+              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                Manual Allocation Ratios
+              </h4>
+              <p className="text-[11px] text-slate-500">
+                Specify percentage of campaign recipients to assign to each connected provider.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                {availableProviders.map((p) => {
+                  const currentVal = Math.round((manualAllocations[p.id] || 0) * 100);
+                  return (
+                    <div key={p.id} className="p-3 bg-white border border-slate-200 rounded-lg">
+                      <div className="flex justify-between text-xs font-semibold mb-1">
+                        <span className="text-slate-800">{p.name} ({p.providerType})</span>
+                        <span className="text-indigo-600 font-bold">{currentVal}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        step="5"
+                        value={currentVal}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10) / 100;
+                          setManualAllocations((prev) => ({ ...prev, [p.id]: val }));
+                        }}
+                        className="w-full accent-indigo-600"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Conditional Sub-controls for Hybrid Tiered */}
+          {campaign.routingMode === 'HYBRID' && (
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
+              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                Hybrid Primary Quota Threshold
+              </h4>
+              <div className="flex justify-between text-xs font-semibold">
+                <span className="text-slate-700">Primary Provider (SES) Cap Before Spilling:</span>
+                <span className="text-indigo-600 font-bold">{hybridThreshold}% of Daily Quota</span>
+              </div>
+              <input
+                type="range"
+                min="20"
+                max="95"
+                step="5"
+                value={hybridThreshold}
+                onChange={(e) => setHybridThreshold(parseInt(e.target.value, 10))}
+                className="w-full accent-indigo-600"
+              />
+              <p className="text-[11px] text-slate-500">
+                Primary provider will process up to {hybridThreshold}% of its daily quota before spillover is dynamically routed to secondary networks.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Email Content Editor & Live Layout Preview */}

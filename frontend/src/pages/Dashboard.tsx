@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { apiRequest } from '../lib/api';
+import { Link } from 'react-router-dom';
 import {
   Users,
   Mail,
@@ -12,6 +13,9 @@ import {
   Clock,
   ArrowUpRight,
   TrendingUp,
+  Server,
+  Zap,
+  DollarSign,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -65,7 +69,7 @@ export const Dashboard: React.FC = () => {
     );
   }
 
-  const { recipients, campaigns, emails, rates, providerQuota, recentEvents, recentCampaigns } = data || {};
+  const { recipients, campaigns, emails, rates, providerQuota, multiProvider, recentEvents, recentCampaigns } = data || {};
 
   const funnelChartData = [
     { name: 'Queued', value: emails?.queued || 0, color: '#94a3b8' },
@@ -83,10 +87,17 @@ export const Dashboard: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Executive Operations Dashboard</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Real-time delivery pipeline, provider quotas, and campaign reputation safeguards.
+            Real-time multi-provider delivery pipeline, quota leases, and autonomous reputation safeguards.
           </p>
         </div>
         <div className="flex items-center space-x-3">
+          <Link
+            to="/providers"
+            className="px-4 py-2 text-sm font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm flex items-center space-x-1.5"
+          >
+            <Server className="w-4 h-4" />
+            <span>Manage Providers</span>
+          </Link>
           <button
             onClick={fetchOverview}
             className="px-4 py-2 text-sm font-medium bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors shadow-sm"
@@ -96,34 +107,38 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Provider Quota Banner */}
+      {/* Multi-Provider Quota & Health Banner */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-6 rounded-2xl shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-6 border border-slate-800">
         <div>
           <div className="flex items-center space-x-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
             <span className="text-xs uppercase tracking-wider font-bold text-indigo-300">
-              Amazon SES Infrastructure Status
+              Multi-Provider Orchestration Engine Active
             </span>
           </div>
           <h2 className="text-xl font-bold mt-1">
-            {providerQuota?.isProduction ? 'SES Production Mode (Verified)' : 'SES Sandbox Mode (Simulator Enabled)'}
+            {multiProvider?.providers?.length || 1} Connected Delivery Networks (SES • Brevo • Mailchimp • Mock)
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Decoupled asynchronous worker pool with token-bucket shared rate limiting.
+            Two-phase quota leases with automated failover circuits and independent token-bucket rate limits.
           </p>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 border-t md:border-t-0 md:border-l border-slate-800 pt-4 md:pt-0 md:pl-6 text-sm">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 border-t md:border-t-0 md:border-l border-slate-800 pt-4 md:pt-0 md:pl-6 text-sm">
           <div>
-            <p className="text-xs text-slate-400">Daily Quota</p>
-            <p className="text-lg font-bold text-white">{providerQuota?.dailyQuota?.toLocaleString()} emails</p>
+            <p className="text-xs text-slate-400">Total Daily Capacity</p>
+            <p className="text-lg font-bold text-white">{(multiProvider?.totalDailyQuota || providerQuota?.dailyQuota || 0).toLocaleString()} emails</p>
           </div>
           <div>
-            <p className="text-xs text-slate-400">24-Hour Dispatched</p>
-            <p className="text-lg font-bold text-emerald-400">{providerQuota?.sentLast24Hours?.toLocaleString()}</p>
+            <p className="text-xs text-slate-400">Dispatched Today</p>
+            <p className="text-lg font-bold text-emerald-400">{(multiProvider?.totalDailyUsed || providerQuota?.sentLast24Hours || 0).toLocaleString()}</p>
           </div>
           <div>
-            <p className="text-xs text-slate-400">Global Rate Limit</p>
-            <p className="text-lg font-bold text-indigo-400">{providerQuota?.maxSendRate} msg/sec</p>
+            <p className="text-xs text-slate-400">Daily Remaining</p>
+            <p className="text-lg font-bold text-indigo-400">{(multiProvider?.totalDailyRemaining || 0).toLocaleString()}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-400">Delivery Spend</p>
+            <p className="text-lg font-bold text-amber-400">${emails?.totalSpendUsd || '0.00'}</p>
           </div>
         </div>
       </div>
@@ -269,6 +284,66 @@ export const Dashboard: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Multi-Provider Fleet & Quota Status */}
+      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-bold text-slate-900 text-base">Multi-Provider Delivery Fleet</h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Live capacity, rate limits, and health across connected delivery providers.
+            </p>
+          </div>
+          <Link
+            to="/providers"
+            className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 flex items-center space-x-1"
+          >
+            <span>View All Providers</span>
+            <ArrowUpRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {(multiProvider?.providers || []).map((p: any) => {
+            const pct = Math.min(100, Math.round(((p.dailyUsed || 0) / (p.dailyQuota || 1)) * 100));
+            return (
+              <div key={p.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50/60 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-xs text-slate-900 truncate">{p.name}</span>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                    p.healthStatus === 'HEALTHY'
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : p.healthStatus === 'DEGRADED'
+                      ? 'bg-amber-100 text-amber-800'
+                      : 'bg-rose-100 text-rose-800'
+                  }`}>
+                    {p.healthStatus}
+                  </span>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-[11px] text-slate-500 mb-1">
+                    <span>Quota: {p.dailyUsed.toLocaleString()} / {p.dailyQuota.toLocaleString()}</span>
+                    <span>{pct}%</span>
+                  </div>
+                  <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                    <div
+                      className="bg-indigo-600 h-full rounded-full transition-all"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100">
+                  <span>Priority <strong>#{p.priority}</strong></span>
+                  <span><strong>{p.perSecondRateLimit}</strong> msg/s</span>
+                  <span><strong>${p.costPerThousand.toFixed(2)}</strong>/1k</span>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 

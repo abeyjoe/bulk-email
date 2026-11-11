@@ -83,6 +83,14 @@ export const CampaignDetail: React.FC = () => {
           <span className="text-xs text-slate-500">
             Started: {campaign.startedAt ? new Date(campaign.startedAt).toLocaleString() : 'Not started'}
           </span>
+          <span className="px-2.5 py-1 rounded bg-indigo-50 text-indigo-700 text-xs font-semibold border border-indigo-200">
+            Strategy: {campaign.routingMode || 'PRIORITY'}
+          </span>
+          {metrics.totalCostUsd !== undefined && (
+            <span className="px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-200">
+              Spend: ${metrics.totalCostUsd} USD
+            </span>
+          )}
         </div>
 
         {campaign.safetyPausedReason && (
@@ -103,7 +111,7 @@ export const CampaignDetail: React.FC = () => {
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <p className="text-xs font-semibold text-slate-500 uppercase">Accepted by SES</p>
+          <p className="text-xs font-semibold text-slate-500 uppercase">Accepted by Providers</p>
           <p className="text-2xl font-bold text-blue-600 mt-2">{metrics.acceptedByProvider?.toLocaleString() || 0}</p>
           <p className="text-[11px] text-slate-400 mt-1">Queued jobs: {metrics.queued?.toLocaleString()}</p>
         </div>

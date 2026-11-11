@@ -50,7 +50,7 @@ export class MockAdapter implements EmailProvider {
     const timestamp = new Date();
 
     // 1. Check for simulated Rate Limit (429)
-    if (toLower.includes('ratelimit') || toLower.includes('429')) {
+    if (toLower.includes('ratelimit') || toLower.includes('simulate-429')) {
       return {
         success: false,
         messageId: '',
