@@ -1,0 +1,340 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Production Infrastructure for Bulk Email Multi-Provider Orchestration Platform'
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: production
+    AllowedValues: [production, staging]
+    Description: Deployment environment name
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Existing VPC ID for ECS tasks
+
+  SubnetIds:
+    Type: List<AWS::EC2::SubnetId>
+    Description: Subnets for ECS Fargate tasks (Private subnets recommended)
+
+  EcsClusterName:
+    Type: String
+    Default: bulk-email-cluster
+    Description: Name of the ECS Cluster
+
+  ContainerImageUri:
+    Type: String
+    Description: ECR Docker image URI for the API and Worker containers
+
+  DatabaseUrlSecretArn:
+    Type: String
+    Description: AWS Secrets Manager ARN storing DATABASE_URL
+
+  JwtSecretSecretArn:
+    Type: String
+    Description: AWS Secrets Manager ARN storing JWT_SECRET
+
+  AlertEmailAddress:
+    Type: String
+    Description: Email address for emergency CloudWatch alarm notifications
+
+Resources:
+  # ----------------------------------------------------------------------------
+  # 1. NOTIFICATION SNS TOPIC
+  # ----------------------------------------------------------------------------
+  OpsAlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'bulk-email-${EnvironmentName}-alerts'
+      Subscription:
+        - Endpoint: !Ref AlertEmailAddress
+          Protocol: email
+
+  # ----------------------------------------------------------------------------
+  # 2. AMAZON SQS FIFO MESSAGE QUEUES
+  # ----------------------------------------------------------------------------
+  EmailDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'bulk-email-${EnvironmentName}-dlq.fifo'
+      FifoQueue: true
+      MessageRetentionPeriod: 1209600 # 14 days retention for inspection
+      VisibilityTimeout: 300
+
+  EmailQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'bulk-email-${EnvironmentName}-jobs.fifo'
+      FifoQueue: true
+      ContentBasedDeduplication: true
+      MessageRetentionPeriod: 345600 # 4 days retention
+      VisibilityTimeout: 300
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt EmailDeadLetterQueue.Arn
+        maxReceiveCount: 5
+
+  # ----------------------------------------------------------------------------
+  # 3. IAM ROLES & LEAST-PRIVILEGE POLICIES
+  # ----------------------------------------------------------------------------
+  EcsTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'bulk-email-${EnvironmentName}-ecsExecutionRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: SecretsManagerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref DatabaseUrlSecretArn
+                  - !Ref JwtSecretSecretArn
+
+  EcsTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'bulk-email-${EnvironmentName}-ecsTaskRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: SqsWorkerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:ChangeMessageVisibility
+                Resource:
+                  - !GetAtt EmailQueue.Arn
+                  - !GetAtt EmailDeadLetterQueue.Arn
+        - PolicyName: SesSendingAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                  - ses:GetSendQuota
+                  - ses:GetSendStatistics
+                Resource: '*'
+        - PolicyName: CloudWatchMetricsAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: '*'
+
+  # ----------------------------------------------------------------------------
+  # 4. ECS CLUSTER & LOG GROUPS
+  # ----------------------------------------------------------------------------
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Ref EcsClusterName
+
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/bulk-email-${EnvironmentName}-api'
+      RetentionInDays: 30
+
+  WorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/bulk-email-${EnvironmentName}-worker'
+      RetentionInDays: 30
+
+  # ----------------------------------------------------------------------------
+  # 5. ECS TASK DEFINITIONS (DECOUPLED API & WORKER)
+  # ----------------------------------------------------------------------------
+  ApiTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub 'bulk-email-${EnvironmentName}-api'
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: '1024'
+      Memory: '2048'
+      ExecutionRoleArn: !GetAtt EcsTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt EcsTaskRole.Arn
+      ContainerDefinitions:
+        - Name: api
+          Image: !Ref ContainerImageUri
+          Essential: true
+          PortMappings:
+            - ContainerPort: 4000
+              Protocol: tcp
+          Environment:
+            - Name: NODE_ENV
+              Value: production
+            - Name: QUEUE_DRIVER
+              Value: sqs
+            - Name: AWS_SQS_QUEUE_URL
+              Value: !Ref EmailQueue
+            - Name: AWS_SQS_DLQ_URL
+              Value: !Ref EmailDeadLetterQueue
+            - Name: AWS_REGION
+              Value: !Ref 'AWS::Region'
+            - Name: START_EMBEDDED_WORKER
+              Value: 'false'
+          Secrets:
+            - Name: DATABASE_URL
+              ValueFrom: !Ref DatabaseUrlSecretArn
+            - Name: JWT_SECRET
+              ValueFrom: !Ref JwtSecretSecretArn
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ApiLogGroup
+              awslogs-region: !Ref 'AWS::Region'
+              awslogs-stream-prefix: api
+
+  WorkerTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub 'bulk-email-${EnvironmentName}-worker'
+      NetworkMode: awsvpc
+      RequiresCompatibilities: [FARGATE]
+      Cpu: '2048'
+      Memory: '4096'
+      ExecutionRoleArn: !GetAtt EcsTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt EcsTaskRole.Arn
+      ContainerDefinitions:
+        - Name: worker
+          Image: !Ref ContainerImageUri
+          Essential: true
+          Command: ["node", "dist/worker-runner.js"]
+          Environment:
+            - Name: NODE_ENV
+              Value: production
+            - Name: QUEUE_DRIVER
+              Value: sqs
+            - Name: AWS_SQS_QUEUE_URL
+              Value: !Ref EmailQueue
+            - Name: AWS_SQS_DLQ_URL
+              Value: !Ref EmailDeadLetterQueue
+            - Name: AWS_REGION
+              Value: !Ref 'AWS::Region'
+            - Name: DEFAULT_WORKER_CONCURRENCY
+              Value: '10'
+            - Name: WORKER_PROCESS_COUNT
+              Value: '4'
+          Secrets:
+            - Name: DATABASE_URL
+              ValueFrom: !Ref DatabaseUrlSecretArn
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref WorkerLogGroup
+              awslogs-region: !Ref 'AWS::Region'
+              awslogs-stream-prefix: worker
+
+  # ----------------------------------------------------------------------------
+  # 6. CLOUDWATCH ALARMS FOR REPUTATION & QUEUE BACKPRESSURE
+  # ----------------------------------------------------------------------------
+  SesBounceRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'SES-High-Bounce-Rate-${EnvironmentName}'
+      AlarmDescription: 'Triggers when Amazon SES Bounce Rate reaches 5%. Amazon pauses sending at 10%.'
+      Namespace: 'AWS/SES'
+      MetricName: 'Reputation.BounceRate'
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0.05
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref OpsAlertTopic
+
+  SesComplaintRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'SES-High-Complaint-Rate-${EnvironmentName}'
+      AlarmDescription: 'Triggers when Amazon SES Complaint Rate reaches 0.1%. Amazon pauses sending at 0.5%.'
+      Namespace: 'AWS/SES'
+      MetricName: 'Reputation.ComplaintRate'
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0.001
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref OpsAlertTopic
+
+  SqsQueueBackpressureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'SQS-Queue-Backpressure-${EnvironmentName}'
+      AlarmDescription: 'Triggers when message backlog exceeds 50,000 pending items for over 15 minutes.'
+      Namespace: 'AWS/SQS'
+      MetricName: 'ApproximateNumberOfMessagesVisible'
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt EmailQueue.QueueName
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 50000
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref OpsAlertTopic
+
+  SqsDeadLetterQueueAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'SQS-Dead-Letter-Messages-Present-${EnvironmentName}'
+      AlarmDescription: 'Triggers immediately when 1 or more jobs land in the Dead-Letter Queue.'
+      Namespace: 'AWS/SQS'
+      MetricName: 'ApproximateNumberOfMessagesVisible'
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt EmailDeadLetterQueue.QueueName
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref OpsAlertTopic
+
+Outputs:
+  QueueUrl:
+    Description: Production Amazon SQS FIFO Queue URL
+    Value: !Ref EmailQueue
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailQueueUrl'
+
+  DeadLetterQueueUrl:
+    Description: Production Amazon SQS Dead Letter Queue URL
+    Value: !Ref EmailDeadLetterQueue
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailDeadLetterQueueUrl'
+
+  OpsAlertTopicArn:
+    Description: Operational SNS Topic for critical bounce/complaint alerts
+    Value: !Ref OpsAlertTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-OpsAlertTopicArn'

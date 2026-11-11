@@ -1,11 +1,11 @@
 {
-  "family": "bulk-email-production",
+  "family": "bulk-email-multi-provider",
   "networkMode": "awsvpc",
   "requiresCompatibilities": ["FARGATE"],
-  "cpu": "1024",
-  "memory": "2048",
-  "executionRoleArn": "arn:aws:iam::123456789012:role/ecsTaskExecutionRole",
-  "taskRoleArn": "arn:aws:iam::123456789012:role/bulkEmailEcsTaskRole",
+  "cpu": "2048",
+  "memory": "4096",
+  "executionRoleArn": "arn:aws:iam::123456789012:role/bulk-email-ecsExecutionRole",
+  "taskRoleArn": "arn:aws:iam::123456789012:role/bulk-email-ecsTaskRole",
   "containerDefinitions": [
     {
       "name": "bulk-email-api",
@@ -21,27 +21,20 @@
       "environment": [
         { "name": "NODE_ENV", "value": "production" },
         { "name": "QUEUE_DRIVER", "value": "sqs" },
-        { "name": "EMAIL_PROVIDER", "value": "ses" },
         { "name": "AWS_REGION", "value": "us-east-1" },
-        { "name": "AWS_SQS_QUEUE_URL", "value": "https://sqs.us-east-1.amazonaws.com/123456789012/bulk-email-jobs" },
-        { "name": "AWS_SQS_DLQ_URL", "value": "https://sqs.us-east-1.amazonaws.com/123456789012/bulk-email-jobs-dlq" },
-        { "name": "AWS_SES_SOURCE_EMAIL", "value": "campaigns@mail.yourdomain.com" },
+        { "name": "AWS_SQS_QUEUE_URL", "value": "https://sqs.us-east-1.amazonaws.com/123456789012/bulk-email-production-jobs.fifo" },
+        { "name": "AWS_SQS_DLQ_URL", "value": "https://sqs.us-east-1.amazonaws.com/123456789012/bulk-email-production-dlq.fifo" },
+        { "name": "DEFAULT_ROUTING_STRATEGY", "value": "PRIORITY" },
         { "name": "START_EMBEDDED_WORKER", "value": "false" }
       ],
       "secrets": [
-        {
-          "name": "DATABASE_URL",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:bulk-email-db-url"
-        },
-        {
-          "name": "JWT_SECRET",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:bulk-email-jwt-secret"
-        }
+        { "name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:bulk-email/production/db" },
+        { "name": "JWT_SECRET", "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:bulk-email/production/jwt" }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
-          "awslogs-group": "/ecs/bulk-email-api",
+          "awslogs-group": "/ecs/bulk-email-production-api",
           "awslogs-region": "us-east-1",
           "awslogs-stream-prefix": "api"
         }
@@ -55,24 +48,19 @@
       "environment": [
         { "name": "NODE_ENV", "value": "production" },
         { "name": "QUEUE_DRIVER", "value": "sqs" },
-        { "name": "EMAIL_PROVIDER", "value": "ses" },
         { "name": "AWS_REGION", "value": "us-east-1" },
-        { "name": "AWS_SQS_QUEUE_URL", "value": "https://sqs.us-east-1.amazonaws.com/123456789012/bulk-email-jobs" },
-        { "name": "AWS_SQS_DLQ_URL", "value": "https://sqs.us-east-1.amazonaws.com/123456789012/bulk-email-jobs-dlq" },
-        { "name": "DEFAULT_MAX_SENDING_RATE", "value": "14.0" },
-        { "name": "DEFAULT_WORKER_CONCURRENCY", "value": "5" },
-        { "name": "WORKER_PROCESS_COUNT", "value": "3" }
+        { "name": "AWS_SQS_QUEUE_URL", "value": "https://sqs.us-east-1.amazonaws.com/123456789012/bulk-email-production-jobs.fifo" },
+        { "name": "AWS_SQS_DLQ_URL", "value": "https://sqs.us-east-1.amazonaws.com/123456789012/bulk-email-production-dlq.fifo" },
+        { "name": "DEFAULT_WORKER_CONCURRENCY", "value": "10" },
+        { "name": "WORKER_PROCESS_COUNT", "value": "4" }
       ],
       "secrets": [
-        {
-          "name": "DATABASE_URL",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:bulk-email-db-url"
-        }
+        { "name": "DATABASE_URL", "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:bulk-email/production/db" }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
-          "awslogs-group": "/ecs/bulk-email-worker",
+          "awslogs-group": "/ecs/bulk-email-production-worker",
           "awslogs-region": "us-east-1",
           "awslogs-stream-prefix": "worker"
         }

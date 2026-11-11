@@ -34,14 +34,16 @@ services:
       DATABASE_URL: postgresql://postgres:secure_postgres_password_2026@postgres:5432/bulk_email?schema=public
       JWT_SECRET: super_secure_enterprise_jwt_secret_key_bulk_email_2026
       FRONTEND_URL: http://localhost:3000
-      QUEUE_DRIVER: database
-      EMAIL_PROVIDER: simulator # change to 'ses' in AWS production
+      QUEUE_DRIVER: database # or 'sqs' in AWS production
+      DEFAULT_ROUTING_STRATEGY: PRIORITY
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-mock_key}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-mock_secret}
       AWS_SES_SOURCE_EMAIL: noreply@bulkemail.cloud
       AWS_SES_CONFIGURATION_SET: bulk-email-events
-      DEFAULT_MAX_SENDING_RATE: 5.0
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      MAILCHIMP_API_KEY: ${MAILCHIMP_API_KEY:-}
+      MAILCHIMP_SERVER_PREFIX: ${MAILCHIMP_SERVER_PREFIX:-us1}
       START_EMBEDDED_WORKER: "false" # Workers run in dedicated container
     ports:
       - "4000:4000"
@@ -63,14 +65,16 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://postgres:secure_postgres_password_2026@postgres:5432/bulk_email?schema=public
       QUEUE_DRIVER: database # or 'sqs' in AWS production
-      EMAIL_PROVIDER: simulator # or 'ses' in AWS production
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-mock_key}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-mock_secret}
       AWS_SES_SOURCE_EMAIL: noreply@bulkemail.cloud
-      DEFAULT_MAX_SENDING_RATE: 5.0
-      DEFAULT_WORKER_CONCURRENCY: 4
-      WORKER_PROCESS_COUNT: 2
+      BREVO_API_KEY: ${BREVO_API_KEY:-}
+      MAILCHIMP_API_KEY: ${MAILCHIMP_API_KEY:-}
+      MAILCHIMP_SERVER_PREFIX: ${MAILCHIMP_SERVER_PREFIX:-us1}
+      DEFAULT_MAX_SENDING_RATE: 25.0
+      DEFAULT_WORKER_CONCURRENCY: 10
+      WORKER_PROCESS_COUNT: 4
 
   frontend:
     build:

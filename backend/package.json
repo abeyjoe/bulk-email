@@ -14,7 +14,8 @@
     "db:generate": "prisma generate",
     "db:seed": "tsx prisma/seed.ts",
     "test": "jest --runInBand",
-    "test:coverage": "jest --coverage --runInBand"
+    "test:coverage": "jest --coverage --runInBand",
+    "preflight:prod": "tsx scripts/production-preflight.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "^3.750.0",
