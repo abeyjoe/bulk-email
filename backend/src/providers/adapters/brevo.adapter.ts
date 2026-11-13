@@ -171,13 +171,21 @@ export class BrevoAdapter implements EmailProvider {
         };
       }
 
+      let errorMsg = `HTTP ${res.status}`;
+      try {
+        const errorJson = await res.json();
+        if (errorJson.message) {
+          errorMsg = errorJson.message;
+        }
+      } catch {}
+
       return {
         status: 'PAUSED',
         healthStatus: 'DEGRADED',
         isProduction: false,
         consecutiveFailures: this.consecutiveFailures,
         lastChecked,
-        message: `HTTP ${res.status}`,
+        message: errorMsg,
       };
     } catch (err: any) {
       return {

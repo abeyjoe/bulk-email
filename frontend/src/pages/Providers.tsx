@@ -93,10 +93,15 @@ export const Providers: React.FC = () => {
     try {
       setTestingId(id);
       setActionMessage(null);
-      const res = await apiRequest<{ health: { healthStatus: string; status: string } }>(`/providers/${id}/test`, {
+      setError(null);
+      const res = await apiRequest<{ health: { healthStatus: string; status: string; message?: string } }>(`/providers/${id}/test`, {
         method: 'POST',
       });
-      setActionMessage(`Health check completed: Status ${res.health.status} (${res.health.healthStatus})`);
+      if (res.health.healthStatus === 'HEALTHY') {
+        setActionMessage(`✅ Health check passed: Provider is HEALTHY & active.`);
+      } else {
+        setError(`⚠️ Health check result: ${res.health.healthStatus} - ${res.health.message || 'Check credentials'}`);
+      }
       fetchProviders();
     } catch (err: any) {
       setError(`Test failed: ${err.message}`);
