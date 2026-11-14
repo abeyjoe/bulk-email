@@ -45,6 +45,7 @@ services:
       START_EMBEDDED_WORKER: "false" # Workers run in dedicated container
     ports:
       - "4000:4000"
+    command: ["sh", "-c", "npx prisma db push && npx tsx prisma/seed.ts && node dist/index.js"]
 
   # Decoupled Background Workers (Scalable to N replicas)
   worker:
