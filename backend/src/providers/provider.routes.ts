@@ -211,6 +211,7 @@ providerRouter.patch('/:id', requireRole([Role.ADMIN]), async (req: Request, res
     const id = req.params.id as string;
     const {
       name,
+      region,
       isEnabled,
       isDefault,
       priority,
@@ -236,6 +237,7 @@ providerRouter.patch('/:id', requireRole([Role.ADMIN]), async (req: Request, res
 
     const updateData: any = {};
     if (name) updateData.name = name.trim();
+    if (region) updateData.region = region.trim();
     if (isEnabled !== undefined) updateData.isEnabled = Boolean(isEnabled);
     if (priority !== undefined) updateData.priority = parseInt(priority, 10);
     if (routingWeight !== undefined) updateData.routingWeight = parseFloat(routingWeight);

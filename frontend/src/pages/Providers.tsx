@@ -55,6 +55,11 @@ export const Providers: React.FC = () => {
   // Modal state
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [editingProvider, setEditingProvider] = useState<ProviderData | null>(null);
+  const [editCreds, setEditCreds] = useState({
+    apiKey: '',
+    accessKeyId: '',
+    secretAccessKey: '',
+  });
   const [testingId, setTestingId] = useState<string | null>(null);
 
   // Form states for adding
@@ -152,19 +157,30 @@ export const Providers: React.FC = () => {
     e.preventDefault();
     if (!editingProvider) return;
     try {
+      const payload: Record<string, any> = {
+        name: editingProvider.name,
+        region: editingProvider.region,
+        priority: editingProvider.priority,
+        routingWeight: editingProvider.routingWeight,
+        dailyQuota: editingProvider.dailyQuota,
+        perSecondRateLimit: editingProvider.perSecondRateLimit,
+        costPerThousand: editingProvider.costPerThousand,
+      };
+      if (editCreds.apiKey.trim()) {
+        payload.apiKey = editCreds.apiKey.trim();
+      }
+      if (editCreds.accessKeyId.trim()) {
+        payload.accessKeyId = editCreds.accessKeyId.trim();
+        payload.secretAccessKey = editCreds.secretAccessKey.trim();
+      }
+
       await apiRequest(`/providers/${editingProvider.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({
-          name: editingProvider.name,
-          priority: editingProvider.priority,
-          routingWeight: editingProvider.routingWeight,
-          dailyQuota: editingProvider.dailyQuota,
-          perSecondRateLimit: editingProvider.perSecondRateLimit,
-          costPerThousand: editingProvider.costPerThousand,
-        }),
+        body: JSON.stringify(payload),
       });
       setEditingProvider(null);
-      setActionMessage('Provider settings updated.');
+      setEditCreds({ apiKey: '', accessKeyId: '', secretAccessKey: '' });
+      setActionMessage('✅ Provider API key & settings updated successfully!');
       fetchProviders();
     } catch (err: any) {
       setError(`Update failed: ${err.message}`);
@@ -411,11 +427,15 @@ export const Providers: React.FC = () => {
                       </button>
 
                       <button
-                        onClick={() => setEditingProvider(p)}
-                        title="Configure Provider Settings"
-                        className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 shadow-sm"
+                        onClick={() => {
+                          setEditingProvider(p);
+                          setEditCreds({ apiKey: '', accessKeyId: '', secretAccessKey: '' });
+                        }}
+                        title="Add API Key or Configure Provider Settings"
+                        className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-medium shadow-sm transition"
                       >
-                        <Sliders className="w-4 h-4" />
+                        <Sliders className="w-3.5 h-3.5" />
+                        <span>Configure / API Key</span>
                       </button>
                     </div>
                   </div>
@@ -431,7 +451,74 @@ export const Providers: React.FC = () => {
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 border border-slate-200">
             <h2 className="text-lg font-bold text-slate-900">Configure {editingProvider.name}</h2>
+            <p className="text-xs text-slate-500 mt-1">
+              Enter your API Key or AWS credentials below to enable real email delivery.
+            </p>
             <form onSubmit={handleUpdateProvider} className="mt-4 space-y-4">
+              {/* Credentials Section */}
+              {editingProvider.providerType.toUpperCase() === 'SES' && (
+                <div className="space-y-3 p-3.5 bg-indigo-50/60 border border-indigo-200 rounded-lg">
+                  <div className="text-xs font-bold text-indigo-900 uppercase tracking-wider">
+                    Amazon SES Credentials
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700">AWS Region</label>
+                    <input
+                      type="text"
+                      value={editingProvider.region || 'us-east-1'}
+                      onChange={(e) => setEditingProvider({ ...editingProvider, region: e.target.value })}
+                      className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+                      placeholder="e.g. eu-north-1 or us-east-1"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700">
+                      AWS Access Key ID <span className="text-slate-400 font-normal">(Current: {editingProvider.accessKeyMasked || 'not set'})</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={editCreds.accessKeyId}
+                      onChange={(e) => setEditCreds({ ...editCreds, accessKeyId: e.target.value })}
+                      className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono bg-white"
+                      placeholder="Paste new AKIA... Access Key ID"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700">AWS Secret Access Key</label>
+                    <input
+                      type="password"
+                      value={editCreds.secretAccessKey}
+                      onChange={(e) => setEditCreds({ ...editCreds, secretAccessKey: e.target.value })}
+                      className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono bg-white"
+                      placeholder="Paste new Secret Access Key"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {(editingProvider.providerType.toUpperCase() === 'BREVO' ||
+                editingProvider.providerType.toUpperCase() === 'MAILCHIMP') && (
+                <div className="space-y-2 p-3.5 bg-indigo-50/60 border border-indigo-200 rounded-lg">
+                  <div className="text-xs font-bold text-indigo-900 uppercase tracking-wider">
+                    {editingProvider.providerType.toUpperCase() === 'BREVO' ? 'Brevo API Key' : 'Mailchimp API Key'}
+                  </div>
+                  <label className="block text-xs font-medium text-slate-700">
+                    API Key <span className="text-slate-400 font-normal">(Current: {editingProvider.accessKeyMasked || 'not set'})</span>
+                  </label>
+                  <input
+                    type="password"
+                    value={editCreds.apiKey}
+                    onChange={(e) => setEditCreds({ ...editCreds, apiKey: e.target.value })}
+                    className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono bg-white"
+                    placeholder={
+                      editingProvider.providerType.toUpperCase() === 'BREVO'
+                        ? 'Paste xkeysib-... API Key here'
+                        : 'Paste Mailchimp API Key here'
+                    }
+                  />
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-medium text-slate-700">Display Name</label>
                 <input
