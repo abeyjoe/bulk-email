@@ -7,6 +7,7 @@ import { TemplateEngine } from '../templates/template-engine';
 import { globalRateLimiter } from '../limiter/rate-limiter.service';
 import { multiRateLimiter } from '../limiter/multi-rate-limiter.service';
 import { providerRouter, RoutingStrategy } from '../routing/provider-router.service';
+import { providerRegistry } from '../providers/provider-registry.service';
 import { quotaManager } from '../quota/quota-manager.service';
 import { CampaignStatus, CampaignRecipientStatus, RecipientStatus } from '@prisma/client';
 import { config } from '../config';
@@ -424,11 +425,42 @@ export class CampaignService {
   /**
    * Send a test email to a designated address for verification
    */
-  static async sendTestEmail(campaignId: string, testEmail: string) {
+  static async sendTestEmail(campaignId: string, testEmail: string, preferredProviderId?: string) {
     const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
     if (!campaign) throw new Error('Campaign not found');
 
-    const provider = getEmailProvider();
+    let providerAccount = null;
+
+    // 1. Explicit provider choice if passed
+    if (preferredProviderId) {
+      providerAccount = await prisma.providerAccount.findUnique({
+        where: { id: preferredProviderId },
+      });
+    }
+
+    // 2. Otherwise use campaign assigned provider if set
+    if (!providerAccount && campaign.assignedProviderId) {
+      providerAccount = await prisma.providerAccount.findUnique({
+        where: { id: campaign.assignedProviderId },
+      });
+    }
+
+    // 3. Otherwise find highest priority active LIVE provider (non-mock, e.g. SES or Brevo)
+    if (!providerAccount) {
+      providerAccount = await prisma.providerAccount.findFirst({
+        where: { isEnabled: true, status: 'ACTIVE', providerType: { not: 'MOCK' } },
+        orderBy: { priority: 'asc' },
+      });
+    }
+
+    // 4. Fallback to mock simulator if no live providers enabled
+    if (!providerAccount) {
+      providerAccount = await prisma.providerAccount.findFirst({
+        where: { isEnabled: true, status: 'ACTIVE' },
+        orderBy: { priority: 'asc' },
+      });
+    }
+
     const context = {
       email: testEmail,
       recipientId: 'test-recipient-id',
@@ -442,15 +474,43 @@ export class CampaignService {
     const renderedSubject = `[TEST] ${TemplateEngine.render(campaign.subject, context)}`;
     const renderedHtml = TemplateEngine.ensureComplianceFooter(campaign.htmlContent, context);
 
-    const result = await provider.send({
+    const message = {
       to: testEmail,
       from: `${campaign.senderName} <${campaign.senderEmail}>`,
       replyTo: campaign.replyTo || undefined,
       subject: renderedSubject,
       html: renderedHtml,
       text: campaign.plainTextContent ? TemplateEngine.render(campaign.plainTextContent, context) : undefined,
-    });
+    };
 
-    return result;
+    if (providerAccount) {
+      try {
+        const provider = await providerRegistry.getProvider(providerAccount.id);
+        const result = await provider.send(message);
+        return {
+          ...result,
+          providerName: providerAccount.name,
+          providerType: providerAccount.providerType,
+          isSimulation: providerAccount.providerType === 'MOCK',
+        };
+      } catch (err: any) {
+        return {
+          success: false,
+          error: err.message,
+          providerName: providerAccount.name,
+          providerType: providerAccount.providerType,
+          isSimulation: providerAccount.providerType === 'MOCK',
+        };
+      }
+    }
+
+    const fallback = getEmailProvider();
+    const result = await fallback.send(message);
+    return {
+      ...result,
+      providerName: 'Built-in Mock Simulator',
+      providerType: 'MOCK',
+      isSimulation: true,
+    };
   }
 }

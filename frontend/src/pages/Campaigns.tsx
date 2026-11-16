@@ -28,6 +28,8 @@ export const Campaigns: React.FC = () => {
   // Test Send Modal
   const [testSendCampaignId, setTestSendCampaignId] = useState<string | null>(null);
   const [testEmailAddress, setTestEmailAddress] = useState('');
+  const [testSendProviderId, setTestSendProviderId] = useState('');
+  const [availableProviders, setAvailableProviders] = useState<any[]>([]);
   const [testSendLoading, setTestSendLoading] = useState(false);
 
   const loadCampaigns = async () => {
@@ -42,8 +44,18 @@ export const Campaigns: React.FC = () => {
     }
   };
 
+  const loadProviders = async () => {
+    try {
+      const res = await apiRequest('/providers');
+      setAvailableProviders(res.providers || []);
+    } catch (err) {
+      console.error('Failed to load providers for test modal', err);
+    }
+  };
+
   useEffect(() => {
     loadCampaigns();
+    loadProviders();
     const interval = setInterval(loadCampaigns, 8000);
     return () => clearInterval(interval);
   }, []);
@@ -109,13 +121,56 @@ export const Campaigns: React.FC = () => {
 
     try {
       setTestSendLoading(true);
-      await apiRequest(`/campaigns/${testSendCampaignId}/test-send`, {
+      const res = await apiRequest<{
+        result: {
+          success: boolean;
+          providerName?: string;
+          providerType?: string;
+          isSimulation?: boolean;
+          error?: string;
+          messageId?: string;
+        };
+      }>(`/campaigns/${testSendCampaignId}/test-send`, {
         method: 'POST',
-        body: JSON.stringify({ testEmail: testEmailAddress }),
+        body: JSON.stringify({
+          testEmail: testEmailAddress,
+          providerId: testSendProviderId || undefined,
+        }),
       });
-      alert(`Test email sent successfully to ${testEmailAddress}!`);
-      setTestSendCampaignId(null);
-      setTestEmailAddress('');
+
+      if (res.result?.success) {
+        if (res.result.isSimulation || res.result.providerType === 'MOCK') {
+          alert(
+            `⚠️ SIMULATION NOTICE:\n\n` +
+            `This test was processed by "${res.result.providerName || 'Mock Simulator'}".\n\n` +
+            `No real email was delivered to your inbox because this provider runs in Simulation Mode.\n\n` +
+            `To receive an actual email in your personal inbox:\n` +
+            `1. Go to "Provider Fleet" in the sidebar.\n` +
+            `2. Configure Brevo or Amazon SES with your live API keys.\n` +
+            `3. Ensure your campaign Sender Email matches your verified domain/sender.`
+          );
+        } else {
+          alert(
+            `✅ REAL EMAIL DELIVERED!\n\n` +
+            `Provider: ${res.result.providerName} (${res.result.providerType})\n` +
+            `Recipient: ${testEmailAddress}\n` +
+            `Message ID: ${res.result.messageId}\n\n` +
+            `Please check your inbox (and spam/promotions folder)!`
+          );
+        }
+        setTestSendCampaignId(null);
+        setTestEmailAddress('');
+        setTestSendProviderId('');
+      } else {
+        alert(
+          `❌ Test Delivery Failed!\n\n` +
+          `Provider: ${res.result?.providerName || 'Selected Provider'}\n` +
+          `Error: ${res.result?.error || 'Provider rejected message'}\n\n` +
+          `Troubleshooting:\n` +
+          `1. Ensure your campaign "Sender Email" is verified in your provider account.\n` +
+          `2. Check that your API key in "Provider Fleet" is valid and active.`
+        );
+      }
     } catch (err: any) {
       alert(`Test send failed: ${err.message}`);
     } finally {
@@ -390,6 +445,25 @@ export const Campaigns: React.FC = () => {
                   className="w-full text-sm border p-2.5 rounded-lg"
                   required
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Select Delivery Provider</label>
+                <select
+                  value={testSendProviderId}
+                  onChange={(e) => setTestSendProviderId(e.target.value)}
+                  className="w-full text-sm border p-2.5 rounded-lg bg-white"
+                >
+                  <option value="">Automatic (Highest Priority Live Provider)</option>
+                  {availableProviders.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.providerType}) {p.providerType === 'MOCK' ? '— Simulation only' : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Choose a live provider (SES or Brevo) to receive an actual email, or the Mock Simulator to test rendering.
+                </p>
               </div>
 
               <div className="flex justify-end space-x-2 pt-3 border-t">

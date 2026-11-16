@@ -105,12 +105,12 @@ campaignRouter.post('/:id/cancel', requireRole([Role.ADMIN, Role.MANAGER]), asyn
 // Send test email
 campaignRouter.post('/:id/test-send', requireRole([Role.ADMIN, Role.MANAGER]), async (req, res) => {
   try {
-    const { testEmail } = req.body;
+    const { testEmail, providerId } = req.body;
     if (!testEmail) {
       res.status(400).json({ error: 'testEmail is required' });
       return;
     }
-    const result = await CampaignService.sendTestEmail(req.params.id as string, testEmail);
+    const result = await CampaignService.sendTestEmail(req.params.id as string, testEmail, providerId);
     res.json({ result });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
