@@ -164,8 +164,11 @@ providerRouter.post('/', requireRole([Role.ADMIN]), async (req: Request, res: Re
       accessKeyMasked = `${accessKeyId.substring(0, 4)}************`;
     }
 
+    const existingCount = await prisma.providerAccount.count();
+    const shouldBeDefault = existingCount === 0 ? true : Boolean(isDefault);
+
     // If marked default, unset other defaults
-    if (isDefault) {
+    if (shouldBeDefault) {
       await prisma.providerAccount.updateMany({
         where: { isDefault: true },
         data: { isDefault: false },
@@ -177,7 +180,7 @@ providerRouter.post('/', requireRole([Role.ADMIN]), async (req: Request, res: Re
         name: name.trim(),
         providerType: upperType,
         region: region || (upperType === 'SES' ? 'us-east-1' : 'us1'),
-        isDefault: Boolean(isDefault),
+        isDefault: shouldBeDefault,
         isSandbox: Boolean(isSandbox),
         isEnabled: true,
         priority: priority ? parseInt(priority, 10) : 10,
@@ -349,13 +352,20 @@ providerRouter.delete('/:id', requireRole([Role.ADMIN]), async (req: Request, re
       return;
     }
 
-    if (provider.isDefault) {
-      res.status(400).json({ error: 'Cannot delete the system default provider' });
-      return;
-    }
-
     await prisma.providerAccount.delete({ where: { id } });
     providerRegistry.evict(id);
+
+    if (provider.isDefault) {
+      const nextProvider = await prisma.providerAccount.findFirst({
+        orderBy: { priority: 'asc' },
+      });
+      if (nextProvider) {
+        await prisma.providerAccount.update({
+          where: { id: nextProvider.id },
+          data: { isDefault: true },
+        });
+      }
+    }
 
     res.json({ success: true, message: 'Provider account removed' });
   } catch (err: any) {

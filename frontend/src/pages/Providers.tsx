@@ -138,6 +138,19 @@ export const Providers: React.FC = () => {
     }
   };
 
+  const handleDeleteProvider = async (provider: ProviderData) => {
+    if (!window.confirm(`Are you sure you want to remove "${provider.name}"?`)) return;
+    try {
+      await apiRequest(`/providers/${provider.id}`, {
+        method: 'DELETE',
+      });
+      setActionMessage(`Removed provider "${provider.name}".`);
+      fetchProviders();
+    } catch (err: any) {
+      setError(`Delete failed: ${err.message}`);
+    }
+  };
+
   const handleCreateProvider = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -335,7 +348,19 @@ export const Providers: React.FC = () => {
           {loading ? (
             <div className="p-8 text-center text-slate-500">Loading delivery providers...</div>
           ) : providers.length === 0 ? (
-            <div className="p-8 text-center text-slate-500">No providers configured yet.</div>
+            <div className="p-10 text-center space-y-3">
+              <div className="text-slate-600 font-medium">No email delivery providers configured yet.</div>
+              <p className="text-xs text-slate-400">
+                Click the button below to connect your own Brevo, Amazon SES, or Mailchimp account with your API key.
+              </p>
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="inline-flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium shadow-sm transition"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Connect Your First Provider</span>
+              </button>
+            </div>
           ) : (
             providers.map((p) => {
               const quotaPercentage = Math.min(100, Math.round((p.dailyUsed / (p.dailyQuota || 1)) * 100));
@@ -436,6 +461,14 @@ export const Providers: React.FC = () => {
                       >
                         <Sliders className="w-3.5 h-3.5" />
                         <span>Configure / API Key</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleDeleteProvider(p)}
+                        title="Remove Provider"
+                        className="p-2 rounded-lg border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 shadow-sm transition"
+                      >
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   </div>

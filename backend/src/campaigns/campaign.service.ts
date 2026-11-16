@@ -504,13 +504,12 @@ export class CampaignService {
       }
     }
 
-    const fallback = getEmailProvider();
-    const result = await fallback.send(message);
     return {
-      ...result,
-      providerName: 'Built-in Mock Simulator',
-      providerType: 'MOCK',
-      isSimulation: true,
+      success: false,
+      error: 'No email delivery provider is configured yet. Please go to Delivery & Infra (/providers) and click "+ Connect Provider" to add your provider first.',
+      providerName: 'None Configured',
+      providerType: 'NONE',
+      isSimulation: false,
     };
   }
 }
