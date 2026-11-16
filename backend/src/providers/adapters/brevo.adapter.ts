@@ -54,12 +54,14 @@ export class BrevoAdapter implements EmailProvider {
     }
 
     try {
+      const senderName = message.from.includes('<') ? message.from.split('<')[0].trim() : undefined;
+      const senderEmail = message.from.includes('<')
+        ? message.from.match(/<([^>]+)>/)?.[1]?.trim() || message.from.trim()
+        : message.from.trim();
+
       const payload: Record<string, any> = {
-        sender: {
-          name: message.from.includes('<') ? message.from.split('<')[0].trim() : undefined,
-          email: message.from.includes('<') ? message.from.match(/<([^>]+)>/)?.[1] || message.from : message.from,
-        },
-        to: [{ email: message.to }],
+        sender: senderName ? { name: senderName, email: senderEmail } : { email: senderEmail },
+        to: [{ email: message.to.trim() }],
         subject: message.subject,
         htmlContent: message.html,
       };
@@ -69,13 +71,15 @@ export class BrevoAdapter implements EmailProvider {
       }
 
       if (message.replyTo) {
-        payload.replyTo = { email: message.replyTo };
+        payload.replyTo = { email: message.replyTo.trim() };
       }
 
-      const headers: Record<string, string> = { ...message.headers };
+      const headers: Record<string, string> = { ...(message.headers || {}) };
       if (message.campaignId) headers['X-BulkEmail-Campaign-ID'] = message.campaignId;
       if (message.recipientId) headers['X-BulkEmail-Recipient-ID'] = message.recipientId;
-      payload.headers = headers;
+      if (Object.keys(headers).length > 0) {
+        payload.headers = headers;
+      }
 
       if (message.campaignId) {
         payload.tags = [`campaign-${message.campaignId}`];
