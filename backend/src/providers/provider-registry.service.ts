@@ -2,6 +2,7 @@ import { EmailProvider } from './provider.interface';
 import { SesAdapter } from './adapters/ses.adapter';
 import { BrevoAdapter } from './adapters/brevo.adapter';
 import { MailchimpAdapter } from './adapters/mailchimp.adapter';
+import { SmtpAdapter } from './adapters/smtp.adapter';
 import { MockAdapter } from './adapters/mock.adapter';
 import { prisma } from '../db/prisma';
 import { multiRateLimiter } from '../limiter/multi-rate-limiter.service';
@@ -142,6 +143,23 @@ export class ProviderRegistryService {
           name: account.name,
           apiKey: creds.apiKey || process.env.MAILCHIMP_API_KEY || account.accessKeyMasked || '',
           serverPrefix: account.region || 'us1',
+          dailyQuota: account.dailyQuota,
+          perSecondRateLimit: account.perSecondRateLimit,
+          costPerThousand: account.costPerThousand,
+        });
+
+      case 'SMTP':
+        return new SmtpAdapter({
+          id: account.id,
+          name: account.name,
+          host: creds.smtpHost || account.region || '',
+          port: Number(creds.smtpPort) || 587,
+          secure: creds.smtpSecure !== undefined ? Boolean(creds.smtpSecure) : Number(creds.smtpPort) === 465,
+          user: creds.smtpUser || '',
+          pass: creds.smtpPass || '',
+          dkimDomain: creds.dkimDomain || '',
+          dkimKeySelector: creds.dkimKeySelector || '',
+          dkimPrivateKey: creds.dkimPrivateKey || '',
           dailyQuota: account.dailyQuota,
           perSecondRateLimit: account.perSecondRateLimit,
           costPerThousand: account.costPerThousand,

@@ -59,21 +59,36 @@ export const Providers: React.FC = () => {
     apiKey: '',
     accessKeyId: '',
     secretAccessKey: '',
+    smtpHost: '',
+    smtpPort: 587,
+    smtpUser: '',
+    smtpPass: '',
+    dkimDomain: '',
+    dkimKeySelector: '',
+    dkimPrivateKey: '',
   });
   const [testingId, setTestingId] = useState<string | null>(null);
 
   // Form states for adding
   const [newForm, setNewForm] = useState({
     name: '',
-    providerType: 'SES',
+    providerType: 'SMTP',
     region: 'us-east-1',
-    dailyQuota: 50000,
-    perSecondRateLimit: 14.0,
-    costPerThousand: 0.10,
+    dailyQuota: 100000,
+    perSecondRateLimit: 20.0,
+    costPerThousand: 0.0,
     priority: 1,
     apiKey: '',
     accessKeyId: '',
     secretAccessKey: '',
+    smtpHost: '',
+    smtpPort: 587,
+    smtpSecure: false,
+    smtpUser: '',
+    smtpPass: '',
+    dkimDomain: '',
+    dkimKeySelector: 'default',
+    dkimPrivateKey: '',
   });
 
   const fetchProviders = async () => {
@@ -186,14 +201,40 @@ export const Providers: React.FC = () => {
         payload.accessKeyId = editCreds.accessKeyId.trim();
         payload.secretAccessKey = editCreds.secretAccessKey.trim();
       }
+      if (editCreds.smtpHost.trim()) {
+        payload.smtpHost = editCreds.smtpHost.trim();
+        payload.smtpPort = Number(editCreds.smtpPort) || 587;
+      }
+      if (editCreds.smtpUser.trim()) {
+        payload.smtpUser = editCreds.smtpUser.trim();
+      }
+      if (editCreds.smtpPass) {
+        payload.smtpPass = editCreds.smtpPass;
+      }
+      if (editCreds.dkimPrivateKey.trim()) {
+        payload.dkimDomain = editCreds.dkimDomain.trim();
+        payload.dkimKeySelector = editCreds.dkimKeySelector.trim() || 'default';
+        payload.dkimPrivateKey = editCreds.dkimPrivateKey.trim();
+      }
 
       await apiRequest(`/providers/${editingProvider.id}`, {
         method: 'PATCH',
         body: JSON.stringify(payload),
       });
       setEditingProvider(null);
-      setEditCreds({ apiKey: '', accessKeyId: '', secretAccessKey: '' });
-      setActionMessage('✅ Provider API key & settings updated successfully!');
+      setEditCreds({
+        apiKey: '',
+        accessKeyId: '',
+        secretAccessKey: '',
+        smtpHost: '',
+        smtpPort: 587,
+        smtpUser: '',
+        smtpPass: '',
+        dkimDomain: '',
+        dkimKeySelector: '',
+        dkimPrivateKey: '',
+      });
+      setActionMessage('✅ Provider credentials & settings updated successfully!');
       fetchProviders();
     } catch (err: any) {
       setError(`Update failed: ${err.message}`);
@@ -208,6 +249,8 @@ export const Providers: React.FC = () => {
 
   const getProviderBadge = (type: string) => {
     switch (type.toUpperCase()) {
+      case 'SMTP':
+        return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800">Custom SMTP / MTA</span>;
       case 'SES':
         return <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">Amazon SES</span>;
       case 'BREVO':
@@ -454,7 +497,18 @@ export const Providers: React.FC = () => {
                       <button
                         onClick={() => {
                           setEditingProvider(p);
-                          setEditCreds({ apiKey: '', accessKeyId: '', secretAccessKey: '' });
+                          setEditCreds({
+                            apiKey: '',
+                            accessKeyId: '',
+                            secretAccessKey: '',
+                            smtpHost: '',
+                            smtpPort: 587,
+                            smtpUser: '',
+                            smtpPass: '',
+                            dkimDomain: '',
+                            dkimKeySelector: '',
+                            dkimPrivateKey: '',
+                          });
                         }}
                         title="Add API Key or Configure Provider Settings"
                         className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-medium shadow-sm transition"
@@ -481,14 +535,64 @@ export const Providers: React.FC = () => {
 
       {/* Edit Provider Modal */}
       {editingProvider && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 border border-slate-200">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 border border-slate-200 my-8">
             <h2 className="text-lg font-bold text-slate-900">Configure {editingProvider.name}</h2>
             <p className="text-xs text-slate-500 mt-1">
-              Enter your API Key or AWS credentials below to enable real email delivery.
+              Enter your API Key, SMTP credentials, or AWS keys below to enable real email delivery.
             </p>
             <form onSubmit={handleUpdateProvider} className="mt-4 space-y-4">
               {/* Credentials Section */}
+              {editingProvider.providerType.toUpperCase() === 'SMTP' && (
+                <div className="space-y-3 p-3.5 bg-indigo-50/60 border border-indigo-200 rounded-lg">
+                  <div className="text-xs font-bold text-indigo-900 uppercase tracking-wider">
+                    Custom SMTP / Self-Hosted Server ({editingProvider.accessKeyMasked || 'not set'})
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-2">
+                      <label className="block text-xs font-medium text-slate-700">SMTP Host</label>
+                      <input
+                        type="text"
+                        value={editCreds.smtpHost}
+                        onChange={(e) => setEditCreds({ ...editCreds, smtpHost: e.target.value })}
+                        className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono bg-white"
+                        placeholder="e.g. smtp.elasticemail.com"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700">Port</label>
+                      <input
+                        type="number"
+                        value={editCreds.smtpPort}
+                        onChange={(e) => setEditCreds({ ...editCreds, smtpPort: parseInt(e.target.value, 10) || 587 })}
+                        className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono bg-white"
+                        placeholder="587"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700">SMTP Username</label>
+                    <input
+                      type="text"
+                      value={editCreds.smtpUser}
+                      onChange={(e) => setEditCreds({ ...editCreds, smtpUser: e.target.value })}
+                      className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono bg-white"
+                      placeholder="SMTP Username / Email"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700">SMTP Password / Key</label>
+                    <input
+                      type="password"
+                      value={editCreds.smtpPass}
+                      onChange={(e) => setEditCreds({ ...editCreds, smtpPass: e.target.value })}
+                      className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono bg-white"
+                      placeholder="Paste new SMTP Password"
+                    />
+                  </div>
+                </div>
+              )}
+
               {editingProvider.providerType.toUpperCase() === 'SES' && (
                 <div className="space-y-3 p-3.5 bg-indigo-50/60 border border-indigo-200 rounded-lg">
                   <div className="text-xs font-bold text-indigo-900 uppercase tracking-wider">
@@ -647,11 +751,11 @@ export const Providers: React.FC = () => {
 
       {/* Connect Provider Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 border border-slate-200">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 border border-slate-200 my-8">
             <h2 className="text-lg font-bold text-slate-900">Connect New Delivery Provider</h2>
             <p className="text-xs text-slate-500 mt-1">
-              Add a production API connection to Amazon SES, Brevo, Mailchimp, or local Mock Simulator.
+              Connect any Self-Hosted Mail Server / Custom SMTP Relay, Amazon SES, Brevo, or Mailchimp.
             </p>
 
             <form onSubmit={handleCreateProvider} className="mt-4 space-y-4">
@@ -661,9 +765,10 @@ export const Providers: React.FC = () => {
                   value={newForm.providerType}
                   onChange={(e) => {
                     const t = e.target.value;
-                    let defaultQuota = 50000;
-                    let defaultRate = 14.0;
-                    let defaultCost = 0.10;
+                    let defaultQuota = 100000;
+                    let defaultRate = 20.0;
+                    let defaultCost = 0.00;
+                    if (t === 'SES') { defaultQuota = 50000; defaultRate = 14.0; defaultCost = 0.10; }
                     if (t === 'BREVO') { defaultQuota = 40000; defaultRate = 5.0; defaultCost = 0.25; }
                     if (t === 'MAILCHIMP') { defaultQuota = 10000; defaultRate = 4.0; defaultCost = 1.00; }
                     if (t === 'MOCK') { defaultQuota = 200000; defaultRate = 50.0; defaultCost = 0.00; }
@@ -678,6 +783,7 @@ export const Providers: React.FC = () => {
                   }}
                   className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
                 >
+                  <option value="SMTP">Universal Custom SMTP / Self-Hosted Mail Server</option>
                   <option value="SES">Amazon SES (API-based)</option>
                   <option value="BREVO">Brevo (Sendinblue API v3)</option>
                   <option value="MAILCHIMP">Mailchimp (Marketing & Transactional)</option>
@@ -689,7 +795,7 @@ export const Providers: React.FC = () => {
                 <label className="block text-xs font-medium text-slate-700">Account Name</label>
                 <input
                   type="text"
-                  placeholder="e.g. SES Production EU-West"
+                  placeholder="e.g. My Self-Hosted Mail Server or Elastic Email SMTP"
                   value={newForm.name}
                   onChange={(e) => setNewForm({ ...newForm, name: e.target.value })}
                   className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
@@ -698,6 +804,165 @@ export const Providers: React.FC = () => {
               </div>
 
               {/* Dynamic Credentials Inputs */}
+              {newForm.providerType === 'SMTP' && (
+                <div className="space-y-3 p-3.5 bg-indigo-50/50 border border-indigo-200 rounded-lg">
+                  <div className="flex flex-wrap items-center gap-1.5 pb-1">
+                    <span className="text-[11px] font-semibold text-indigo-900 mr-1">Quick Presets:</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setNewForm({
+                          ...newForm,
+                          name: newForm.name || 'Self-Hosted Postfix / Postal Server',
+                          smtpHost: 'mail.yourdomain.com',
+                          smtpPort: 587,
+                          smtpSecure: false,
+                        })
+                      }
+                      className="px-2 py-0.5 text-[11px] bg-white border border-indigo-200 rounded text-indigo-700 hover:bg-indigo-100"
+                    >
+                      Self-Hosted VPS
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setNewForm({
+                          ...newForm,
+                          name: newForm.name || 'Elastic Email SMTP',
+                          smtpHost: 'smtp.elasticemail.com',
+                          smtpPort: 2525,
+                          smtpSecure: false,
+                        })
+                      }
+                      className="px-2 py-0.5 text-[11px] bg-white border border-indigo-200 rounded text-indigo-700 hover:bg-indigo-100"
+                    >
+                      Elastic Email
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setNewForm({
+                          ...newForm,
+                          name: newForm.name || 'Mailgun SMTP',
+                          smtpHost: 'smtp.mailgun.org',
+                          smtpPort: 587,
+                          smtpSecure: false,
+                        })
+                      }
+                      className="px-2 py-0.5 text-[11px] bg-white border border-indigo-200 rounded text-indigo-700 hover:bg-indigo-100"
+                    >
+                      Mailgun
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setNewForm({
+                          ...newForm,
+                          name: newForm.name || 'Namecheap PrivateEmail',
+                          smtpHost: 'mail.privateemail.com',
+                          smtpPort: 587,
+                          smtpSecure: false,
+                        })
+                      }
+                      className="px-2 py-0.5 text-[11px] bg-white border border-indigo-200 rounded text-indigo-700 hover:bg-indigo-100"
+                    >
+                      Namecheap Email
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="col-span-2">
+                      <label className="block text-xs font-medium text-slate-700">SMTP Host</label>
+                      <input
+                        type="text"
+                        value={newForm.smtpHost}
+                        onChange={(e) => setNewForm({ ...newForm, smtpHost: e.target.value })}
+                        className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono bg-white"
+                        placeholder="smtp.yourdomain.com"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700">SMTP Port</label>
+                      <input
+                        type="number"
+                        value={newForm.smtpPort}
+                        onChange={(e) => {
+                          const p = parseInt(e.target.value, 10) || 587;
+                          setNewForm({ ...newForm, smtpPort: p, smtpSecure: p === 465 });
+                        }}
+                        className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono bg-white"
+                        placeholder="587"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700">SMTP Username</label>
+                      <input
+                        type="text"
+                        value={newForm.smtpUser}
+                        onChange={(e) => setNewForm({ ...newForm, smtpUser: e.target.value })}
+                        className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono bg-white"
+                        placeholder="user@yourdomain.com"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700">SMTP Password / Key</label>
+                      <input
+                        type="password"
+                        value={newForm.smtpPass}
+                        onChange={(e) => setNewForm({ ...newForm, smtpPass: e.target.value })}
+                        className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono bg-white"
+                        placeholder="Password or API Token"
+                      />
+                    </div>
+                  </div>
+
+                  <details className="text-xs text-slate-600 pt-1">
+                    <summary className="cursor-pointer font-semibold text-indigo-700 hover:underline">
+                      + Optional: Custom DKIM Private Key Signing (For Self-Hosted Servers)
+                    </summary>
+                    <div className="mt-2 space-y-2 pl-2 border-l-2 border-indigo-200">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[11px] font-medium text-slate-700">DKIM Domain</label>
+                          <input
+                            type="text"
+                            value={newForm.dkimDomain}
+                            onChange={(e) => setNewForm({ ...newForm, dkimDomain: e.target.value })}
+                            className="mt-0.5 w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs bg-white"
+                            placeholder="yourdomain.com"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-medium text-slate-700">DKIM Selector</label>
+                          <input
+                            type="text"
+                            value={newForm.dkimKeySelector}
+                            onChange={(e) => setNewForm({ ...newForm, dkimKeySelector: e.target.value })}
+                            className="mt-0.5 w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs bg-white"
+                            placeholder="default"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-700">DKIM RSA Private Key (PEM)</label>
+                        <textarea
+                          rows={2}
+                          value={newForm.dkimPrivateKey}
+                          onChange={(e) => setNewForm({ ...newForm, dkimPrivateKey: e.target.value })}
+                          className="mt-0.5 w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs font-mono bg-white"
+                          placeholder="-----BEGIN RSA PRIVATE KEY-----..."
+                        />
+                      </div>
+                    </div>
+                  </details>
+                </div>
+              )}
+
               {newForm.providerType === 'SES' && (
                 <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
                   <div>

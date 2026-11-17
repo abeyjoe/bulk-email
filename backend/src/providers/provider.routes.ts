@@ -137,6 +137,14 @@ providerRouter.post('/', requireRole([Role.ADMIN]), async (req: Request, res: Re
       apiKey,
       accessKeyId,
       secretAccessKey,
+      smtpHost,
+      smtpPort,
+      smtpSecure,
+      smtpUser,
+      smtpPass,
+      dkimDomain,
+      dkimKeySelector,
+      dkimPrivateKey,
     } = req.body;
 
     if (!name?.trim() || !providerType?.trim()) {
@@ -163,6 +171,17 @@ providerRouter.post('/', requireRole([Role.ADMIN]), async (req: Request, res: Re
       credentials.secretAccessKey = secretAccessKey;
       accessKeyMasked = `${accessKeyId.substring(0, 4)}************`;
     }
+    if (smtpHost) {
+      credentials.smtpHost = smtpHost.trim();
+      credentials.smtpPort = Number(smtpPort) || 587;
+      credentials.smtpSecure = smtpSecure !== undefined ? Boolean(smtpSecure) : Number(smtpPort) === 465;
+      credentials.smtpUser = smtpUser?.trim() || '';
+      credentials.smtpPass = smtpPass || '';
+      if (dkimDomain) credentials.dkimDomain = dkimDomain.trim();
+      if (dkimKeySelector) credentials.dkimKeySelector = dkimKeySelector.trim();
+      if (dkimPrivateKey) credentials.dkimPrivateKey = dkimPrivateKey.trim();
+      accessKeyMasked = `${credentials.smtpHost}:${credentials.smtpPort}`;
+    }
 
     const existingCount = await prisma.providerAccount.count();
     const shouldBeDefault = existingCount === 0 ? true : Boolean(isDefault);
@@ -179,7 +198,7 @@ providerRouter.post('/', requireRole([Role.ADMIN]), async (req: Request, res: Re
       data: {
         name: name.trim(),
         providerType: upperType,
-        region: region || (upperType === 'SES' ? 'us-east-1' : 'us1'),
+        region: region || (upperType === 'SMTP' ? smtpHost?.trim() || 'custom-smtp' : upperType === 'SES' ? 'us-east-1' : 'us1'),
         isDefault: shouldBeDefault,
         isSandbox: Boolean(isSandbox),
         isEnabled: true,
@@ -227,6 +246,14 @@ providerRouter.patch('/:id', requireRole([Role.ADMIN]), async (req: Request, res
       apiKey,
       accessKeyId,
       secretAccessKey,
+      smtpHost,
+      smtpPort,
+      smtpSecure,
+      smtpUser,
+      smtpPass,
+      dkimDomain,
+      dkimKeySelector,
+      dkimPrivateKey,
     } = req.body;
 
     const existing = await prisma.providerAccount.findUnique({
@@ -265,8 +292,8 @@ providerRouter.patch('/:id', requireRole([Role.ADMIN]), async (req: Request, res
       updateData.isDefault = true;
     }
 
-    if (apiKey || accessKeyId) {
-      const creds = (existing.credentialsEncrypted as Record<string, any>) || {};
+    if (apiKey || accessKeyId || smtpHost || smtpUser || smtpPass || dkimPrivateKey) {
+      const creds = { ...((existing.credentialsEncrypted as Record<string, any>) || {}) };
       if (apiKey) {
         creds.apiKey = apiKey;
         updateData.accessKeyMasked = `${apiKey.substring(0, 8)}************`;
@@ -275,6 +302,17 @@ providerRouter.patch('/:id', requireRole([Role.ADMIN]), async (req: Request, res
         creds.accessKeyId = accessKeyId;
         creds.secretAccessKey = secretAccessKey;
         updateData.accessKeyMasked = `${accessKeyId.substring(0, 4)}************`;
+      }
+      if (smtpHost) creds.smtpHost = smtpHost.trim();
+      if (smtpPort) creds.smtpPort = Number(smtpPort);
+      if (smtpSecure !== undefined) creds.smtpSecure = Boolean(smtpSecure);
+      if (smtpUser !== undefined && smtpUser !== '') creds.smtpUser = smtpUser.trim();
+      if (smtpPass !== undefined && smtpPass !== '') creds.smtpPass = smtpPass;
+      if (dkimDomain !== undefined && dkimDomain !== '') creds.dkimDomain = dkimDomain.trim();
+      if (dkimKeySelector !== undefined && dkimKeySelector !== '') creds.dkimKeySelector = dkimKeySelector.trim();
+      if (dkimPrivateKey !== undefined && dkimPrivateKey !== '') creds.dkimPrivateKey = dkimPrivateKey.trim();
+      if (creds.smtpHost) {
+        updateData.accessKeyMasked = `${creds.smtpHost}:${creds.smtpPort || 587}`;
       }
       updateData.credentialsEncrypted = creds;
     }
