@@ -396,11 +396,47 @@ export class CampaignService {
       globalRateLimiter.setRate(campaign.maxSendingRate);
     }
 
+    // Recover any false-positive bounces caused by sender SMTP suspension
+    const suspendedRejections = await prisma.campaignRecipient.findMany({
+      where: {
+        campaignId,
+        status: CampaignRecipientStatus.REJECTED,
+        error: { contains: 'has been suspended' },
+      },
+      select: { email: true, recipientId: true },
+    });
+
+    if (suspendedRejections.length > 0) {
+      const affectedEmails = suspendedRejections.map((r) => r.email);
+      await prisma.suppressionRecord.deleteMany({
+        where: { email: { in: affectedEmails }, source: 'PROVIDER_REJECTION' },
+      });
+      await prisma.recipient.updateMany({
+        where: { email: { in: affectedEmails }, status: RecipientStatus.SUPPRESSED },
+        data: { status: RecipientStatus.SUBSCRIBED },
+      });
+      await prisma.campaignRecipient.updateMany({
+        where: { campaignId, email: { in: affectedEmails } },
+        data: { status: CampaignRecipientStatus.QUEUED, error: null },
+      });
+    }
+
+    const updatedBouncedCount = Math.max(0, campaign.bouncedCount - suspendedRejections.length);
+    let newBounceThreshold = campaign.bounceThreshold;
+    if (campaign.acceptedCount > 0) {
+      const currentBounceRate = (updatedBouncedCount / campaign.acceptedCount) * 100;
+      if (currentBounceRate >= campaign.bounceThreshold) {
+        newBounceThreshold = Math.ceil(currentBounceRate + 5);
+      }
+    }
+
     return prisma.campaign.update({
       where: { id: campaignId },
       data: {
         status: CampaignStatus.RUNNING,
         safetyPausedReason: null,
+        bouncedCount: updatedBouncedCount,
+        bounceThreshold: newBounceThreshold,
       },
     });
   }

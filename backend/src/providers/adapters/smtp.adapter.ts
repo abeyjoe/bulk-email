@@ -65,8 +65,8 @@ export class SmtpAdapter implements EmailProvider {
 
     const transportOptions: Record<string, any> = {
       pool: true,
-      maxConnections: 10,
-      maxMessages: 200,
+      maxConnections: 3,
+      maxMessages: 100,
       host: this.host,
       port: this.port,
       secure: this.secure,
@@ -163,7 +163,7 @@ export class SmtpAdapter implements EmailProvider {
       const isRateLimit =
         responseCode === 421 ||
         responseCode === 450 ||
-        /rate|too many|throttl|quota|limit/i.test(err.message || '');
+        /rate|too many|throttl|quota|limit|outgoing mail.*suspended|exceeded|not allowed in.*from/i.test(err.message || '');
       const isTransient =
         isRateLimit ||
         (responseCode >= 400 && responseCode < 500) ||

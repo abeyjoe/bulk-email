@@ -284,6 +284,16 @@ export class EmailWorker {
             }
           }
 
+          if (/outgoing mail.*suspended|exceeded the max emails/i.test(result.error || '')) {
+            await prisma.campaign.update({
+              where: { id: campaign.id },
+              data: {
+                status: CampaignStatus.PAUSED,
+                safetyPausedReason: `SMTP Server Notice: ${result.error}. Unsuspend outgoing mail in cPanel/WHM and click Resume.`,
+              },
+            }).catch(() => {});
+          }
+
           // Fallback standard nack retry if no alternative provider
           console.warn(`[Worker ${this.workerId}] Transient error sending to ${job.email}: ${result.error}`);
           await queue.nack(job, result.error || 'Transient provider error', 30);
