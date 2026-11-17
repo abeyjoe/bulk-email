@@ -119,8 +119,21 @@ export class SmtpAdapter implements EmailProvider {
       if (message.campaignId) headers['X-BulkEmail-Campaign-ID'] = message.campaignId;
       if (message.recipientId) headers['X-BulkEmail-Recipient-ID'] = message.recipientId;
 
+      let effectiveFrom = message.from;
+      if (this.user && this.user.includes('@')) {
+        const userDomain = this.user.split('@')[1]?.toLowerCase();
+        const fromEmail = message.from.includes('<')
+          ? message.from.match(/<([^>]+)>/)?.[1]?.trim() || message.from
+          : message.from.trim();
+        const fromDomain = fromEmail.split('@')[1]?.toLowerCase();
+        if (!fromDomain || fromDomain === 'bulkemail.cloud' || (userDomain && fromDomain !== userDomain)) {
+          const displayName = message.from.includes('<') ? message.from.split('<')[0].trim() : '';
+          effectiveFrom = displayName ? `${displayName} <${this.user}>` : this.user;
+        }
+      }
+
       const info = await transporter.sendMail({
-        from: message.from,
+        from: effectiveFrom,
         to: message.to,
         replyTo: message.replyTo,
         subject: message.subject,
