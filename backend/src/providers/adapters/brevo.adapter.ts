@@ -27,6 +27,7 @@ export class BrevoAdapter implements EmailProvider {
   private dailyQuota: number;
   private perSecondRateLimit: number;
   private costPerThousand: number;
+  private verifiedSendersCache: { emails: string[]; fetchedAt: number } | null = null;
 
   constructor(cfg: BrevoAdapterConfig) {
     this.id = cfg.id;
@@ -35,6 +36,32 @@ export class BrevoAdapter implements EmailProvider {
     this.dailyQuota = cfg.dailyQuota || 40000;
     this.perSecondRateLimit = cfg.perSecondRateLimit || 5.0;
     this.costPerThousand = cfg.costPerThousand || 0.25;
+  }
+
+  private async resolveVerifiedSenderEmail(requestedEmail: string): Promise<string> {
+    try {
+      const now = Date.now();
+      if (!this.verifiedSendersCache || now - this.verifiedSendersCache.fetchedAt > 60000) {
+        const res = await fetch(`${this.baseUrl}/senders`, {
+          headers: {
+            'api-key': this.apiKey,
+            'Accept': 'application/json',
+          },
+        });
+        if (res.ok) {
+          const data: any = await res.json();
+          const activeEmails = (data.senders || [])
+            .filter((s: any) => s.active && s.email)
+            .map((s: any) => String(s.email).toLowerCase().trim());
+          this.verifiedSendersCache = { emails: activeEmails, fetchedAt: now };
+        }
+      }
+      const verified = this.verifiedSendersCache?.emails || [];
+      if (verified.length > 0 && !verified.includes(requestedEmail.toLowerCase())) {
+        return verified[0];
+      }
+    } catch {}
+    return requestedEmail;
   }
 
   public async send(message: EmailMessage): Promise<EmailSendResult> {
@@ -55,9 +82,10 @@ export class BrevoAdapter implements EmailProvider {
 
     try {
       const senderName = message.from.includes('<') ? message.from.split('<')[0].trim() : undefined;
-      const senderEmail = message.from.includes('<')
+      const rawSenderEmail = message.from.includes('<')
         ? message.from.match(/<([^>]+)>/)?.[1]?.trim() || message.from.trim()
         : message.from.trim();
+      const senderEmail = await this.resolveVerifiedSenderEmail(rawSenderEmail);
 
       const payload: Record<string, any> = {
         sender: senderName ? { name: senderName, email: senderEmail } : { email: senderEmail },
