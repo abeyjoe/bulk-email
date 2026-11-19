@@ -320,7 +320,11 @@ export class CampaignService {
           email,
           payload: {
             to: email,
-            from: `${campaign.senderName} <${campaign.senderEmail}>`,
+            from: `${
+              !campaign.senderName || campaign.senderName === 'Bulk Email Operations'
+                ? '250 Assembly of Technocrats'
+                : campaign.senderName
+            } <${campaign.senderEmail}>`,
             replyTo: campaign.replyTo || undefined,
             subject: personalizedSubject,
             html: personalizedHtml,
@@ -497,22 +501,30 @@ export class CampaignService {
       });
     }
 
+    const existingRecipient = await prisma.recipient.findFirst({
+      where: { email: testEmail.toLowerCase().trim() },
+    });
+
     const context = {
       email: testEmail,
-      recipientId: 'test-recipient-id',
+      recipientId: existingRecipient?.id || 'test-recipient-id',
       campaignId: campaign.id,
-      firstName: 'Preview',
-      lastName: 'Tester',
-      organisation: 'QA Organization',
+      firstName: existingRecipient?.firstName || 'Friend',
+      lastName: existingRecipient?.lastName || '',
+      organisation: existingRecipient?.organisation || '250 Assembly of Technocrats',
       unsubscribeUrl: `${config.frontendUrl}/unsubscribe?test=true`,
     };
 
-    const renderedSubject = `[TEST] ${TemplateEngine.render(campaign.subject, context)}`;
+    const renderedSubject = TemplateEngine.render(campaign.subject, context);
     const renderedHtml = TemplateEngine.ensureComplianceFooter(campaign.htmlContent, context);
+    const cleanSenderName =
+      !campaign.senderName || campaign.senderName === 'Bulk Email Operations'
+        ? '250 Assembly of Technocrats'
+        : campaign.senderName;
 
     const message = {
       to: testEmail,
-      from: `${campaign.senderName} <${campaign.senderEmail}>`,
+      from: `${cleanSenderName} <${campaign.senderEmail}>`,
       replyTo: campaign.replyTo || undefined,
       subject: renderedSubject,
       html: renderedHtml,

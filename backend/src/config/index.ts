@@ -51,7 +51,7 @@ export const config = {
   compliance: {
     defaultBounceThresholdPercent: parseFloat(process.env.DEFAULT_BOUNCE_THRESHOLD_PERCENT || '5.0'),
     defaultComplaintThresholdPercent: parseFloat(process.env.DEFAULT_COMPLAINT_THRESHOLD_PERCENT || '0.1'),
-    physicalPostalAddress: process.env.PHYSICAL_POSTAL_ADDRESS || 'Bulk Email Operations, 100 Tech Innovation Blvd, Lagos, Nigeria',
-    companyName: process.env.COMPANY_NAME || 'Bulk Email Inc.',
+    physicalPostalAddress: process.env.PHYSICAL_POSTAL_ADDRESS || '250 Africa Diaspora Assembly of Technocrats • Mind Revolution Challenge',
+    companyName: process.env.COMPANY_NAME || '250 Assembly of Technocrats',
   },
 };

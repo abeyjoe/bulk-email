@@ -22,8 +22,8 @@ export const CreateCampaign: React.FC = () => {
   const [campaign, setCampaign] = useState({
     name: '',
     subject: '',
-    senderName: 'Bulk Email Operations',
-    senderEmail: 'noreply@bulkemail.cloud',
+    senderName: '250 Assembly of Technocrats',
+    senderEmail: '250assemblyoftechnocrats@mindrevolutionchallenge.com',
     replyTo: '',
     targetListId: '',
     templateId: '',
