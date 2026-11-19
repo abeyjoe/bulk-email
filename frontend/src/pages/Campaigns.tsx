@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   Clock,
   BarChart2,
+  Edit3,
 } from 'lucide-react';
 
 export const Campaigns: React.FC = () => {
@@ -24,6 +25,10 @@ export const Campaigns: React.FC = () => {
   const [preflightData, setPreflightData] = useState<any>(null);
   const [isPreflightOpen, setIsPreflightOpen] = useState(false);
   const [launchLoading, setLaunchLoading] = useState(false);
+
+  // Edit Campaign Modal
+  const [editingCampaign, setEditingCampaign] = useState<any>(null);
+  const [editSaving, setEditSaving] = useState(false);
 
   // Test Send Modal
   const [testSendCampaignId, setTestSendCampaignId] = useState<string | null>(null);
@@ -112,6 +117,30 @@ export const Campaigns: React.FC = () => {
       loadCampaigns();
     } catch (err: any) {
       alert(err.message);
+    }
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCampaign) return;
+    try {
+      setEditSaving(true);
+      await apiRequest(`/campaigns/${editingCampaign.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: editingCampaign.name,
+          subject: editingCampaign.subject,
+          senderName: editingCampaign.senderName,
+          senderEmail: editingCampaign.senderEmail,
+          htmlContent: editingCampaign.htmlContent,
+        }),
+      });
+      setEditingCampaign(null);
+      loadCampaigns();
+    } catch (err: any) {
+      alert(`Failed to update campaign: ${err.message}`);
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -268,6 +297,14 @@ export const Campaigns: React.FC = () => {
                         >
                           <BarChart2 className="w-4 h-4" />
                         </Link>
+
+                        <button
+                          onClick={() => setEditingCampaign({ ...c })}
+                          className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded"
+                          title="Edit Campaign (Sender Name, Subject, HTML)"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
 
                         <button
                           onClick={() => setTestSendCampaignId(c.id)}
@@ -480,6 +517,90 @@ export const Campaigns: React.FC = () => {
                   className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50"
                 >
                   {testSendLoading ? 'Sending...' : 'Send Test'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Campaign Modal */}
+      {editingCampaign && (
+        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 my-8">
+            <h3 className="text-lg font-bold text-slate-900">Edit Campaign Details</h3>
+            <form onSubmit={handleSaveEdit} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Campaign Name (Internal)</label>
+                  <input
+                    type="text"
+                    value={editingCampaign.name || ''}
+                    onChange={(e) => setEditingCampaign({ ...editingCampaign, name: e.target.value })}
+                    className="w-full text-sm border p-2.5 rounded-lg"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Email Subject Line</label>
+                  <input
+                    type="text"
+                    value={editingCampaign.subject || ''}
+                    onChange={(e) => setEditingCampaign({ ...editingCampaign, subject: e.target.value })}
+                    className="w-full text-sm border p-2.5 rounded-lg"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Sender Name</label>
+                  <input
+                    type="text"
+                    value={editingCampaign.senderName || ''}
+                    onChange={(e) => setEditingCampaign({ ...editingCampaign, senderName: e.target.value })}
+                    className="w-full text-sm border p-2.5 rounded-lg"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Sender Email</label>
+                  <input
+                    type="email"
+                    value={editingCampaign.senderEmail || ''}
+                    onChange={(e) => setEditingCampaign({ ...editingCampaign, senderEmail: e.target.value })}
+                    className="w-full text-sm border p-2.5 rounded-lg"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">HTML Email Content</label>
+                <textarea
+                  rows={10}
+                  value={editingCampaign.htmlContent || ''}
+                  onChange={(e) => setEditingCampaign({ ...editingCampaign, htmlContent: e.target.value })}
+                  className="w-full text-xs font-mono border p-2.5 rounded-lg bg-slate-50"
+                  required
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-3 border-t">
+                <button
+                  type="button"
+                  onClick={() => setEditingCampaign(null)}
+                  className="px-4 py-2 border rounded-lg text-sm text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={editSaving}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {editSaving ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </form>

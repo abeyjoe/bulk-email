@@ -51,6 +51,29 @@ campaignRouter.post('/', requireRole([Role.ADMIN, Role.MANAGER]), async (req, re
   }
 });
 
+// Update campaign details (name, subject, senderName, senderEmail, htmlContent)
+campaignRouter.patch('/:id', requireRole([Role.ADMIN, Role.MANAGER]), async (req, res) => {
+  try {
+    const id = req.params.id as string;
+    const { name, subject, senderName, senderEmail, replyTo, htmlContent } = req.body;
+    const data: Record<string, any> = {};
+    if (name !== undefined) data.name = String(name).trim();
+    if (subject !== undefined) data.subject = String(subject).trim();
+    if (senderName !== undefined) data.senderName = String(senderName).trim();
+    if (senderEmail !== undefined) data.senderEmail = String(senderEmail).trim();
+    if (replyTo !== undefined) data.replyTo = replyTo ? String(replyTo).trim() : null;
+    if (htmlContent !== undefined) data.htmlContent = String(htmlContent);
+
+    const campaign = await prisma.campaign.update({
+      where: { id },
+      data,
+    });
+    res.json({ campaign });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Preflight review showing total eligible vs excluded recipients
 campaignRouter.get('/:id/preflight', async (req, res) => {
   try {
