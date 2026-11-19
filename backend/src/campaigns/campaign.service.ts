@@ -505,14 +505,15 @@ export class CampaignService {
       where: { email: testEmail.toLowerCase().trim() },
     });
 
+    const recipientIdForToken = existingRecipient?.id || 'test-recipient-id';
     const context = {
       email: testEmail,
-      recipientId: existingRecipient?.id || 'test-recipient-id',
+      recipientId: recipientIdForToken,
       campaignId: campaign.id,
       firstName: existingRecipient?.firstName || 'Friend',
       lastName: existingRecipient?.lastName || '',
       organisation: existingRecipient?.organisation || '250 Assembly of Technocrats',
-      unsubscribeUrl: `${config.frontendUrl}/unsubscribe?test=true`,
+      unsubscribeUrl: UnsubscribeService.generateUnsubscribeUrl(testEmail, recipientIdForToken, campaign.id),
     };
 
     const renderedSubject = TemplateEngine.render(campaign.subject, context);

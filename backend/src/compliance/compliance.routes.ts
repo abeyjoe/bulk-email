@@ -13,19 +13,21 @@ export const complianceRouter = Router();
 complianceRouter.post('/unsubscribe', async (req: Request, res: Response) => {
   try {
     const { email, recipientId, campaignId, token, reason } = req.body;
-    if (!email || !token) {
-      res.status(400).json({ error: 'Email and verification token are required' });
+    if (!email || !String(email).includes('@')) {
+      res.status(400).json({ error: 'A valid email address is required to unsubscribe' });
       return;
     }
 
     const ipAddress = req.ip || req.socket.remoteAddress;
     const userAgent = req.headers['user-agent'];
+    const effectiveToken =
+      token || UnsubscribeService.generateToken(email, recipientId || '', campaignId);
 
     const result = await UnsubscribeService.processUnsubscribe({
       email,
       recipientId,
       campaignId,
-      token,
+      token: effectiveToken,
       reason,
       ipAddress,
       userAgent,

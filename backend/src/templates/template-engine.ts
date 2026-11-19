@@ -57,10 +57,16 @@ export class TemplateEngine {
    * if they are missing from custom HTML templates
    */
   static ensureComplianceFooter(html: string, context: PersonalizationContext): string {
-    const rendered = this.render(html, context);
+    let rendered = this.render(html, context);
 
-    // If already contains unsubscribe link, return
-    if (rendered.toLowerCase().includes('unsubscribe')) {
+    // Automatically convert plain-text [Unsubscribe] placeholders into a clickable link
+    rendered = rendered.replace(
+      /\[\s*unsubscribe\s*\]/gi,
+      `<a href="${context.unsubscribeUrl}" style="color: #4f46e5; text-decoration: underline; font-weight: 600;">Unsubscribe</a>`
+    );
+
+    // If it already contains the actual clickable unsubscribe URL, return
+    if (rendered.includes(context.unsubscribeUrl) || /href=["'][^"']*unsubscribe/i.test(rendered)) {
       return rendered;
     }
 

@@ -6,7 +6,10 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 export const config = {
   env: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT || '4000', 10),
-  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
+  frontendUrl:
+    process.env.FRONTEND_URL && process.env.FRONTEND_URL !== 'http://localhost:3000'
+      ? process.env.FRONTEND_URL
+      : 'http://16.171.56.30:3000',
 
   jwt: {
     secret: process.env.JWT_SECRET || 'fallback-bulk-email-secret-key-change-me',

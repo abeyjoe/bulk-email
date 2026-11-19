@@ -4,11 +4,12 @@ import { Mail, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export const Unsubscribe: React.FC = () => {
   const [searchParams] = useSearchParams();
-  const email = searchParams.get('email') || '';
+  const initialEmail = searchParams.get('email') || '';
   const token = searchParams.get('token') || '';
   const recipientId = searchParams.get('recipientId') || '';
   const campaignId = searchParams.get('campaignId') || '';
 
+  const [emailInput, setEmailInput] = useState(initialEmail);
   const [reason, setReason] = useState('I receive too many emails');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -24,7 +25,7 @@ export const Unsubscribe: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email,
+          email: emailInput.trim(),
           token,
           recipientId,
           campaignId,
@@ -54,7 +55,7 @@ export const Unsubscribe: React.FC = () => {
           </div>
           <h1 className="text-xl font-bold text-slate-900">Email Subscription Preferences</h1>
           <p className="text-xs text-slate-500">
-            Manage your subscription status for <strong>{email || 'your email address'}</strong>
+            Manage your subscription status for <strong>{emailInput || 'your email address'}</strong>
           </p>
         </div>
 
@@ -63,7 +64,7 @@ export const Unsubscribe: React.FC = () => {
             <CheckCircle2 className="w-8 h-8 text-emerald-600 mx-auto" />
             <h3 className="font-bold text-sm">Successfully Unsubscribed</h3>
             <p className="text-xs text-emerald-700">
-              Your email address has been added to our permanent suppression list. You will not receive future marketing campaigns from this platform.
+              <strong>{emailInput}</strong> has been added to our permanent suppression list. You will not receive future marketing campaigns from this platform.
             </p>
           </div>
         ) : (
@@ -74,6 +75,18 @@ export const Unsubscribe: React.FC = () => {
                 <span>{error}</span>
               </div>
             )}
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Email Address to Unsubscribe</label>
+              <input
+                type="email"
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+                placeholder="you@example.com"
+                className="w-full text-xs border rounded-lg p-2.5 bg-white text-slate-800"
+                required
+              />
+            </div>
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Reason for unsubscribing (Optional)</label>
@@ -91,7 +104,7 @@ export const Unsubscribe: React.FC = () => {
 
             <button
               type="submit"
-              disabled={loading || !email}
+              disabled={loading || !emailInput.trim()}
               className="w-full py-2.5 bg-rose-600 text-white rounded-lg text-sm font-semibold hover:bg-rose-700 transition-colors disabled:opacity-50"
             >
               {loading ? 'Processing...' : 'Confirm Unsubscribe'}
